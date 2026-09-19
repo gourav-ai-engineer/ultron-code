@@ -15,23 +15,63 @@ class FakeInteraction:
     def provider(self) -> str:
         return "mock"
 
-    def send_prompt(self, prompt, correlation_id, approval=None, requires_approval=True):
+    def send_prompt(
+        self,
+        prompt,
+        correlation_id,
+        approval=None,
+        requires_approval=True,
+    ):
         self.sent.append(prompt)
-        return InteractionResult("i-1", self.provider, True, "sent", correlation_id)
+        return InteractionResult(
+            "i-1",
+            self.provider,
+            True,
+            "sent",
+            correlation_id,
+        )
 
 
-def test_autonomous_runner_dispatches_when_enabled(tmp_path) -> None:
+def test_autonomous_runner_waits_while_provider_is_progressing(tmp_path) -> None:
     interaction = FakeInteraction([])
     runner = AutonomousRunner(
         WorkflowEngine(WorkspaceObserver(tmp_path)),
         MockProvider(summary="Working", progress=0.5),
         interaction=interaction,
-        config=AutonomousLoopConfig(max_iterations=1, auto_prompt_enabled=True),
+        config=AutonomousLoopConfig(
+            max_iterations=1,
+            auto_prompt_enabled=True,
+        ),
     )
 
     cycles = runner.run(lambda: True)
 
     assert len(cycles) == 1
+    assert cycles[0].run.decision.kind.value == "wait"
+    assert cycles[0].delivery is None
+    assert interaction.sent == []
+
+
+def test_autonomous_runner_dispatches_review(tmp_path) -> None:
+    interaction = FakeInteraction([])
+    runner = AutonomousRunner(
+        WorkflowEngine(WorkspaceObserver(tmp_path)),
+        MockProvider(
+            summary="Session exists but no progress",
+            progress=None,
+            session_id="session-1",
+        ),
+        interaction=interaction,
+        config=AutonomousLoopConfig(
+            max_iterations=1,
+            auto_prompt_enabled=True,
+        ),
+    )
+
+    cycles = runner.run(lambda: True)
+
+    assert len(cycles) == 1
+    assert cycles[0].run.decision.kind.value == "review"
     assert cycles[0].delivery is not None
     assert cycles[0].delivery.interaction.accepted is True
     assert interaction.sent
@@ -41,7 +81,7 @@ def test_autonomous_runner_does_not_dispatch_in_default_mode(tmp_path) -> None:
     interaction = FakeInteraction([])
     runner = AutonomousRunner(
         WorkflowEngine(WorkspaceObserver(tmp_path)),
-        MockProvider(summary="Working", progress=0.5),
+        MockProvider(summary="Session", progress=None, session_id="session-1"),
         interaction=interaction,
         config=AutonomousLoopConfig(max_iterations=1),
     )
