@@ -7,6 +7,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .safety import ActionRisk, SafetyDecision
+from .security import redact_secrets
 
 
 @dataclass(frozen=True)
@@ -44,16 +45,16 @@ class AuditLogger:
         """Record a safety decision and optional execution outcome."""
         event = AuditEvent(
             event_id=str(uuid4()),
-            action=decision.action,
+            action=redact_secrets(decision.action),
             risk=decision.risk.value,
             allowed=decision.allowed,
-            reason=decision.reason,
+            reason=redact_secrets(decision.reason),
             timestamp=decision.timestamp,
             status=status,
             correlation_id=correlation_id or str(uuid4()),
             return_code=return_code,
             timed_out=timed_out,
-            error=error,
+            error=redact_secrets(error),
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
@@ -85,7 +86,7 @@ class AuditLogger:
     ) -> AuditEvent:
         """Record provider prompt-delivery metadata without storing prompt content."""
         decision = SafetyDecision(
-            action=f"provider:{provider}:send_prompt",
+            action=f"provider:{redact_secrets(provider)}:send_prompt",
             risk=ActionRisk.REQUIRES_APPROVAL,
             allowed=accepted,
             reason="Provider interaction accepted." if accepted else "Provider interaction denied.",
