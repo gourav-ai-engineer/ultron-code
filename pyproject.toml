@@ -23,6 +23,10 @@ api = [
 automation = [
     "pyautogui>=0.9,<1.0",
 ]
+ocr = [
+    "pytesseract>=0.3,<0.4",
+    "Pillow>=12.0,<13.0",
+]
 
 [project.scripts]
 ultron = "ultron.cli:app"
