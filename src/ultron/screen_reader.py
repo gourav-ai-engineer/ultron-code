@@ -41,7 +41,8 @@ class PytesseractScreenReader:
 
         try:
             with Image.open(path) as image:
-                text = pytesseract.image_to_string(image)
+                extracted = pytesseract.image_to_string(image)
+                text = str(extracted)
         except Exception as exc:
             raise ScreenTextUnavailableError(f"OCR failed: {exc}") from exc
 
