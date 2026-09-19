@@ -41,7 +41,10 @@ class ProgressCorrelator:
             reason = "Provider reported 100% progress."
         elif self._is_blocked_summary(summary):
             state = ProgressState.BLOCKED
-            reason = "Provider summary contains a blocking signal."
+            reason = "Provider summary contains an explicit blocking signal."
+        elif self._is_idle_summary(summary):
+            state = ProgressState.IDLE
+            reason = "Provider explicitly reported that it is waiting for work."
         elif changed_count > 0 or (progress is not None and progress > 0):
             state = ProgressState.PROGRESSING
             reason = "Workspace activity or reported progress was detected."
@@ -81,3 +84,18 @@ class ProgressCorrelator:
             "blocked by",
         )
         return any(token in summary for token in blocking_signals)
+
+    @staticmethod
+    def _is_idle_summary(summary: str) -> bool:
+        """Detect explicit idle/waiting-for-task states."""
+        idle_signals = (
+            "waiting for next task",
+            "awaiting next task",
+            "ready for next task",
+            "waiting for instructions",
+            "awaiting instructions",
+            "ready for instructions",
+            "idle",
+            "standing by",
+        )
+        return any(token in summary for token in idle_signals)
