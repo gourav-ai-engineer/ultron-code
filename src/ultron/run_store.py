@@ -7,7 +7,6 @@ import json
 from .correlation import ProgressAssessment, ProgressState
 from .decision import Decision, DecisionKind
 from .executor import ExecutionResult
-from .models import Phase
 from .providers import ProviderKind, ProviderSnapshot
 from .synthesis import PromptProposal
 from .workflow import WorkflowRun, WorkflowStage
@@ -101,23 +100,44 @@ class RunStore:
                 correlation_id=str(execution_data["correlation_id"]),
             )
 
+        changed_files = workspace_data.get("changed_files", ())
+        untracked_files = workspace_data.get("untracked_files", ())
+        notes = payload.get("notes", ())
+
+        if not isinstance(changed_files, list | tuple):
+            raise ValueError("Invalid changed_files payload.")
+        if not isinstance(untracked_files, list | tuple):
+            raise ValueError("Invalid untracked_files payload.")
+        if not isinstance(notes, list | tuple):
+            raise ValueError("Invalid notes payload.")
+
         return WorkflowRun(
             run_id=str(payload["run_id"]),
             started_at=str(payload["started_at"]),
             stage=WorkflowStage(str(payload["stage"])),
             provider=ProviderSnapshot(
                 provider=ProviderKind(str(provider_data["provider"])),
-                session_id=provider_data.get("session_id"),
+                session_id=(
+                    str(provider_data["session_id"])
+                    if provider_data.get("session_id") is not None
+                    else None
+                ),
                 summary=str(provider_data["summary"]),
-                progress=provider_data.get("progress"),
+                progress=(
+                    float(provider_data["progress"])
+                    if provider_data.get("progress") is not None
+                    else None
+                ),
             ),
             workspace=WorkspaceSnapshot(
                 root=str(workspace_data["root"]),
-                branch=workspace_data.get("branch"),
-                changed_files=tuple(str(item) for item in workspace_data.get("changed_files", ())),
-                untracked_files=tuple(
-                    str(item) for item in workspace_data.get("untracked_files", ())
+                branch=(
+                    str(workspace_data["branch"])
+                    if workspace_data.get("branch") is not None
+                    else None
                 ),
+                changed_files=tuple(str(item) for item in changed_files),
+                untracked_files=tuple(str(item) for item in untracked_files),
                 git_available=bool(workspace_data["git_available"]),
             ),
             assessment=ProgressAssessment(
@@ -125,7 +145,11 @@ class RunStore:
                 reason=str(assessment_data["reason"]),
                 provider=str(assessment_data["provider"]),
                 changed_file_count=int(assessment_data["changed_file_count"]),
-                reported_progress=assessment_data.get("reported_progress"),
+                reported_progress=(
+                    float(assessment_data["reported_progress"])
+                    if assessment_data.get("reported_progress") is not None
+                    else None
+                ),
             ),
             decision=Decision(
                 kind=DecisionKind(str(decision_data["kind"])),
@@ -137,9 +161,13 @@ class RunStore:
                 prompt=str(prompt_data["prompt"]),
                 reason=str(prompt_data["reason"]),
                 decision=DecisionKind(str(prompt_data["decision"])),
-                phase_id=prompt_data.get("phase_id"),
+                phase_id=(
+                    str(prompt_data["phase_id"])
+                    if prompt_data.get("phase_id") is not None
+                    else None
+                ),
                 requires_approval=bool(prompt_data["requires_approval"]),
             ),
             execution=execution,
-            notes=tuple(str(item) for item in payload.get("notes", ())),
+            notes=tuple(str(item) for item in notes),
         )
