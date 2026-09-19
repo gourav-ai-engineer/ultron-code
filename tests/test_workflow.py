@@ -67,3 +67,37 @@ def test_workflow_requires_executor_for_execution(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="no ActionExecutor"):
         engine.execute(run, "git status")
+
+
+
+def test_workflow_includes_advisory_reasoning_on_review(tmp_path) -> None:
+    from ultron.reasoning import ReasoningResult
+
+    class FakeReasoner:
+        def advise(self, phase, provider, workspace, assessment, decision):
+            return ReasoningResult(
+                provider="gemini",
+                model="gemini-test",
+                advice="TASK: Review the architecture.\nWHY: Phase is idle.\nVALIDATE: Check docs.",
+            )
+
+    phase = Phase(
+        id="phase-1",
+        title="Architecture",
+        objective="Review architecture",
+        acceptance_criteria=["Architecture reviewed"],
+    )
+    engine = WorkflowEngine(
+        WorkspaceObserver(tmp_path),
+        reasoner=FakeReasoner(),
+    )
+
+    run = engine.observe(
+        MockProvider(summary="Waiting for next task", progress=0.0),
+        has_active_phase=True,
+        phase=phase,
+    )
+
+    assert run.decision.kind.value == "review"
+    assert "Advisory reasoning:" in run.prompt.prompt
+    assert "Review the architecture." in run.prompt.prompt
