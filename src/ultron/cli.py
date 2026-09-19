@@ -9,6 +9,7 @@ from .audit import AuditLogger
 from .autonomous import AutonomousLoopConfig, AutonomousRunner
 from .control import ControlStore
 from .desktop import DesktopInteractionConfig, DesktopProviderAdapter
+from .doctor import Doctor
 from .delivery import PromptDeliveryService
 from .executor import ActionExecutor, ExecutionDeniedError
 from .loop import LoopConfig, WorkflowLoop
@@ -840,6 +841,24 @@ def audit_list(
             f"{event.timestamp} | {event.status} | "
             f"{event.risk} | {event.correlation_id} | {event.action}"
         )
+
+
+@app.command()
+def doctor(
+    include_optional: bool = typer.Option(
+        False,
+        "--all",
+        help="Also require optional API/desktop/OCR dependencies.",
+    ),
+) -> None:
+    """Run non-mutating environment diagnostics."""
+    diagnostics = Doctor().check()
+    for item in diagnostics:
+        state = "OK" if item.ok else "MISSING"
+        typer.echo(f"{state:7} {item.name}: {item.detail}")
+
+    if not Doctor().healthy(include_optional=include_optional):
+        raise typer.Exit(code=1)
 
 
 @app.command()
