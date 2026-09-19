@@ -1,4 +1,4 @@
-"""Command-line entry point for ULTRON CODE."""
+""""Command-line entry point for ULTRON CODE."""
 
 from pathlib import Path
 
@@ -9,8 +9,11 @@ from .executor import ActionExecutor, ExecutionDeniedError
 from .models import Phase, Project
 from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
+from .providers import MockProvider
 from .safety import SafetyPolicy
 from .state import ProjectStateStore
+from .workflow import WorkflowEngine
+from .workspace import WorkspaceObserver
 
 app = typer.Typer(help="ULTRON CODE development orchestrator")
 
@@ -18,9 +21,11 @@ app = typer.Typer(help="ULTRON CODE development orchestrator")
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.5.0")
+    typer.echo("ULTRON CODE v0.6.0")
     typer.echo("Mode: dry-run by default")
-    typer.echo("Status: planning, orchestration, safety, approvals, and controlled execution available")
+    typer.echo(
+        "Status: planning, orchestration, safety, approvals, workflow, and controlled execution available"
+    )
 
 
 @app.command()
@@ -157,6 +162,74 @@ def execute(
     if result.stderr:
         typer.echo("STDERR:")
         typer.echo(result.stderr.rstrip())
+
+
+@app.command()
+def workflow_run(
+    workspace: Path = typer.Option(Path(".")),
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+    provider_summary: str = typer.Option("No activity recorded."),
+    progress: float | None = typer.Option(None, min=0.0, max=1.0),
+    session_id: str | None = typer.Option(None),
+    action: str | None = typer.Option(
+        None,
+        help="Optional explicitly supplied allowlisted action to execute after observation.",
+    ),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Permit controlled execution of the supplied action.",
+    ),
+    approval_id: str | None = typer.Option(None, "--approval-id"),
+    approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
+) -> None:
+    """Run one end-to-end observation cycle and optionally execute an explicit action."""
+    try:
+        project = ProjectStateStore(state_path).load()
+        has_active_phase = project.active_phase_id is not None
+    except FileNotFoundError:
+        has_active_phase = False
+
+    provider = MockProvider(
+        summary=provider_summary,
+        progress=progress,
+        session_id=session_id,
+    )
+    executor = (
+        ActionExecutor(
+            workspace,
+            safety_policy=SafetyPolicy(dry_run=not live),
+        )
+        if action is not None
+        else None
+    )
+    engine = WorkflowEngine(WorkspaceObserver(workspace), executor=executor)
+    run = engine.observe(provider, has_active_phase=has_active_phase)
+
+    typer.echo(f"Run ID: {run.run_id}")
+    typer.echo(f"Provider: {run.provider.provider.value}")
+    typer.echo(f"Progress state: {run.assessment.state.value}")
+    typer.echo(f"Decision: {run.decision.kind.value}")
+    typer.echo(f"Rationale: {run.decision.rationale}")
+
+    if action is None:
+        return
+
+    approval = None
+    if approval_id is not None:
+        approval = ApprovalGateway(approvals_path).get(approval_id)
+
+    try:
+        completed = engine.execute(run, action, approval=approval)
+    except ExecutionDeniedError as exc:
+        typer.echo(f"Execution denied: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if completed.execution is None:
+        return
+    typer.echo(f"Execution correlation ID: {completed.execution.correlation_id}")
+    typer.echo(f"Exit code: {completed.execution.return_code}")
+    typer.echo(f"Timed out: {completed.execution.timed_out}")
 
 
 if __name__ == "__main__":
