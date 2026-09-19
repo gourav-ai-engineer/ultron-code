@@ -1,4 +1,4 @@
-""""Command-line entry point for ULTRON CODE."""
+"""Command-line entry point for ULTRON CODE."""
 
 from pathlib import Path
 
@@ -148,6 +148,7 @@ def execute(
         typer.echo(f"Execution denied: {exc}")
         raise typer.Exit(code=1) from exc
 
+    typer.echo(f"Correlation ID: {result.correlation_id}")
     typer.echo(f"Exit code: {result.return_code}")
     typer.echo(f"Timed out: {result.timed_out}")
     if result.stdout:
