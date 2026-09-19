@@ -1,6 +1,5 @@
 """Optional local HTTP API for ULTRON CODE."""
 
-from pathlib import Path
 from typing import Any
 import hmac
 
@@ -93,12 +92,9 @@ def create_app(runtime: UltronRuntime | None = None) -> Any:
         authorization: str | None = Header(default=None),
     ) -> dict[str, object]:
         require_token(authorization)
-        try:
-            for payload in runtime.run_store.all():
-                if payload.get("run_id") == run_id:
-                    return payload
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=500, detail="Invalid run history.") from exc
+        for payload in runtime.run_store.all():
+            if payload.get("run_id") == run_id:
+                return payload
         raise HTTPException(status_code=404, detail="Workflow run not found.")
 
     @app.get("/control")
