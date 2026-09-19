@@ -93,15 +93,15 @@ class Doctor:
         diagnostics.append(
             Diagnostic(
                 "gemini_api_key",
-                bool(self._env("GEMINI_API_KEY")),
-                "configured" if self._env("GEMINI_API_KEY") else "not configured",
+                self.settings.gemini_api_key is not None,
+                "configured" if self.settings.gemini_api_key else "not configured",
             )
         )
         diagnostics.append(
             Diagnostic(
                 "openrouter_api_key",
-                bool(self._env("OPENROUTER_API_KEY")),
-                "configured" if self._env("OPENROUTER_API_KEY") else "not configured",
+                self.settings.openrouter_api_key is not None,
+                "configured" if self.settings.openrouter_api_key else "not configured",
             )
         )
 
