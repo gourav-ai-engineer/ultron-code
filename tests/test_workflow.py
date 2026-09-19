@@ -2,8 +2,7 @@ import subprocess
 
 import pytest
 
-from ultron.decision import DecisionEngine
-from ultron.executor import ActionExecutor, ExecutionDeniedError
+from ultron.executor import ActionExecutor
 from ultron.providers import MockProvider
 from ultron.safety import SafetyPolicy
 from ultron.workspace import WorkspaceObserver
@@ -39,7 +38,6 @@ def test_workflow_execute_reuses_run_id(tmp_path, monkeypatch) -> None:
     )
     engine = WorkflowEngine(
         WorkspaceObserver(tmp_path),
-        decision_engine=DecisionEngine(),
         executor=executor,
     )
     run = engine.observe(
