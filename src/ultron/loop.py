@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import threading
 
 from .control import ControlStore
+from .models import Phase
 from .providers import ProviderAdapter
 from .run_store import RunStore
 from .workflow import WorkflowEngine, WorkflowRun
@@ -34,12 +35,14 @@ class WorkflowLoop:
         config: LoopConfig | None = None,
         run_store: RunStore | None = None,
         control_store: ControlStore | None = None,
+        phase_supplier: Callable[[], Phase | None] | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
         self.config = config or LoopConfig()
         self.run_store = run_store
         self.control_store = control_store
+        self.phase_supplier = phase_supplier
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -61,9 +64,13 @@ class WorkflowLoop:
                 if controls.emergency_stop or controls.paused:
                     break
 
+            phase = self.phase_supplier() if self.phase_supplier is not None else None
+            active = phase is not None if self.phase_supplier is not None else has_active_phase()
+
             run = self.engine.observe(
                 self.provider,
-                has_active_phase=has_active_phase(),
+                has_active_phase=active,
+                phase=phase,
             )
             runs.append(run)
             if self.run_store is not None:
