@@ -19,6 +19,7 @@ class ScreenProviderAdapter:
     observer: ScreenObserver | None = None
     windows: WindowController | None = None
     reader: PytesseractScreenReader | None = None
+    retain_screenshot: bool = False
 
     @property
     def provider(self) -> ProviderKind:
@@ -27,7 +28,11 @@ class ScreenProviderAdapter:
     def health_check(self) -> ProviderHealth:
         try:
             self._capture()
-        except (AutomationUnavailableError, WindowNotFoundError, ScreenTextUnavailableError) as exc:
+        except (
+            AutomationUnavailableError,
+            WindowNotFoundError,
+            ScreenTextUnavailableError,
+        ) as exc:
             return ProviderHealth(
                 self.provider,
                 ProviderStatus.UNAVAILABLE,
@@ -40,10 +45,10 @@ class ScreenProviderAdapter:
         )
 
     def snapshot(self) -> ProviderSnapshot:
-        title, text = self._capture()
+        _, text = self._capture()
         return ProviderSnapshot(
             provider=self.provider,
-            session_id=title,
+            session_id=self.window_title,
             summary=text.text or "No visible provider text detected.",
             progress=self._progress(text.text),
         )
@@ -55,7 +60,14 @@ class ScreenProviderAdapter:
 
         title = windows.find_and_focus(self.window_title)
         observer.capture(self.screenshot_path)
-        text = reader.read(self.screenshot_path)
+        try:
+            text = reader.read(self.screenshot_path)
+        finally:
+            if not self.retain_screenshot:
+                try:
+                    self.screenshot_path.unlink()
+                except FileNotFoundError:
+                    pass
         return title, text
 
     @staticmethod
