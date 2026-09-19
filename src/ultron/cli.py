@@ -5,14 +5,18 @@ from pathlib import Path
 import typer
 
 from .approval import ApprovalGateway, ApprovalStatus
+from .control import ControlStore
 from .executor import ActionExecutor, ExecutionDeniedError
+from .loop import LoopConfig, WorkflowLoop
 from .models import Phase, Project
 from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
 from .provider_registry import ProviderRegistry
 from .provider_runtime import ProviderRequestError
 from .providers import ProviderAdapter
+from .runtime import UltronRuntime
 from .safety import SafetyPolicy
+from .settings import UltronSettings
 from .state import ProjectStateStore
 from .workflow import WorkflowEngine
 from .workspace import WorkspaceObserver
@@ -76,11 +80,11 @@ def _build_provider(
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.8.0")
+    typer.echo("ULTRON CODE v0.9.0")
     typer.echo("Mode: dry-run by default")
     typer.echo(
-        "Status: planning, orchestration, safety, approvals, workflow, "
-        "provider registry, and controlled execution available"
+        "Status: planning, workflow, provider registry, approvals, controls, "
+        "automation, API, and controlled execution available"
     )
 
 
@@ -179,6 +183,7 @@ def approval_request(
     action: str = typer.Option(..., prompt="Action requiring approval"),
     rationale: str = typer.Option(..., prompt="Rationale"),
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
+    correlation_id: str | None = typer.Option(None, help="Workflow run correlation ID"),
 ) -> None:
     """Create an approval request for a safety-classified action."""
     safety_decision = SafetyPolicy(dry_run=True).evaluate(action)
@@ -186,7 +191,11 @@ def approval_request(
         typer.echo(f"Approval request not created: {safety_decision.reason}")
         raise typer.Exit(code=1)
 
-    request = ApprovalGateway(approvals_path).request(safety_decision, rationale)
+    request = ApprovalGateway(approvals_path).request(
+        safety_decision,
+        rationale,
+        correlation_id=correlation_id,
+    )
     typer.echo(f"Approval request: {request.request_id}")
     typer.echo(f"Status: {request.status.value}")
 
@@ -277,20 +286,17 @@ def workflow_run(
         None,
         help="Optional explicitly supplied allowlisted action to execute after observation.",
     ),
-    live: bool = typer.Option(
-        False,
-        "--live",
-        help="Permit controlled execution of the supplied action.",
-    ),
+    live: bool = typer.Option(False, "--live", help="Permit controlled execution."),
     approval_id: str | None = typer.Option(None, "--approval-id"),
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
 ) -> None:
     """Run one provider-backed observation cycle and optionally execute an explicit action."""
     try:
         project = ProjectStateStore(state_path).load()
-        has_active_phase = project.active_phase_id is not None
     except FileNotFoundError:
-        has_active_phase = False
+        project = None
+
+    has_active_phase = project is not None and project.active_phase_id is not None
 
     registry = ProviderRegistry()
     try:
@@ -309,17 +315,24 @@ def workflow_run(
         raise typer.Exit(code=1) from exc
 
     executor = (
-        ActionExecutor(
-            workspace,
-            safety_policy=SafetyPolicy(dry_run=not live),
-        )
+        ActionExecutor(workspace, safety_policy=SafetyPolicy(dry_run=not live))
         if action is not None
         else None
     )
     engine = WorkflowEngine(WorkspaceObserver(workspace), executor=executor)
+    phase = None
+    if project is not None and project.active_phase_id is not None:
+        phase = next(
+            (item for item in project.phases if item.id == project.active_phase_id),
+            None,
+        )
 
     try:
-        run = engine.observe(selected_provider, has_active_phase=has_active_phase)
+        run = engine.observe(
+            selected_provider,
+            has_active_phase=has_active_phase,
+            phase=phase,
+        )
     except ProviderRequestError as exc:
         typer.echo(f"Provider observation failed: {exc}")
         raise typer.Exit(code=1) from exc
@@ -329,6 +342,8 @@ def workflow_run(
     typer.echo(f"Progress state: {run.assessment.state.value}")
     typer.echo(f"Decision: {run.decision.kind.value}")
     typer.echo(f"Rationale: {run.decision.rationale}")
+    typer.echo("NEXT PROMPT:")
+    typer.echo(run.prompt.prompt)
 
     if action is None:
         return
@@ -348,6 +363,131 @@ def workflow_run(
     typer.echo(f"Execution correlation ID: {completed.execution.correlation_id}")
     typer.echo(f"Exit code: {completed.execution.return_code}")
     typer.echo(f"Timed out: {completed.execution.timed_out}")
+
+
+@app.command()
+def control_stop(
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+    reason: str = typer.Option("Operator requested emergency stop."),
+) -> None:
+    """Enable the persistent emergency stop."""
+    state = ControlStore(control_path).set(emergency_stop=True, reason=reason)
+    typer.echo(f"Emergency stop: {state.emergency_stop}")
+    typer.echo(f"Reason: {state.reason}")
+
+
+@app.command()
+def control_clear(
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+) -> None:
+    """Clear the persistent emergency stop and pause state."""
+    state = ControlStore(control_path).set(emergency_stop=False, paused=False, reason="")
+    typer.echo(f"Emergency stop: {state.emergency_stop}")
+    typer.echo(f"Paused: {state.paused}")
+
+
+@app.command()
+def control_pause(
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+    reason: str = typer.Option("Operator paused runtime."),
+) -> None:
+    """Pause future workflow-loop iterations."""
+    state = ControlStore(control_path).set(paused=True, reason=reason)
+    typer.echo(f"Paused: {state.paused}")
+
+
+@app.command()
+def control_resume(
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+) -> None:
+    """Resume workflow-loop iterations without changing emergency-stop state."""
+    current = ControlStore(control_path).get()
+    if current.emergency_stop:
+        typer.echo("Emergency stop remains active; use control-clear first.")
+        raise typer.Exit(code=1)
+    state = ControlStore(control_path).set(paused=False, reason="")
+    typer.echo(f"Paused: {state.paused}")
+
+
+@app.command()
+def run_loop(
+    provider: str = typer.Option("mock"),
+    workspace: Path = typer.Option(Path(".")),
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+    runs_path: Path = typer.Option(Path(".ultron/runs.jsonl")),
+    interval_seconds: float = typer.Option(10.0, min=0.1),
+    max_iterations: int = typer.Option(1, min=0),
+    provider_summary: str = typer.Option("No activity recorded."),
+    progress: float | None = typer.Option(None, min=0.0, max=1.0),
+) -> None:
+    """Run repeated provider observations until stopped, paused, or bounded limit."""
+    registry = ProviderRegistry()
+    selected_provider = _build_provider(
+        registry,
+        provider,
+        summary=provider_summary,
+        progress=progress,
+    )
+    runtime = UltronRuntime(
+        UltronSettings(
+            workspace=workspace,
+            state_path=state_path,
+            runs_path=runs_path,
+        )
+    )
+    store = ProjectStateStore(runtime.settings.resolve_path(state_path))
+    run_store = runtime.run_store
+    controls = ControlStore(control_path)
+
+    loop = WorkflowLoop(
+        WorkflowEngine(WorkspaceObserver(workspace)),
+        selected_provider,
+        LoopConfig(interval_seconds=interval_seconds, max_iterations=max_iterations),
+        run_store=run_store,
+        control_store=controls,
+        phase_supplier=lambda: _active_phase(store),
+    )
+    runs = loop.run(
+        lambda: (project := _safe_load(store)) is not None
+        and project.active_phase_id is not None,
+        on_run=lambda run: typer.echo(
+            f"{run.run_id} | {run.provider.provider.value} | "
+            f"{run.assessment.state.value} | {run.decision.kind.value}"
+        ),
+    )
+    typer.echo(f"Runs completed: {len(runs)}")
+
+
+@app.command()
+def serve() -> None:
+    """Start the local FastAPI control plane."""
+    try:
+        import uvicorn
+        from .api import create_app
+    except ImportError as exc:
+        raise typer.BadParameter("Install the 'api' optional dependency to run the server.") from exc
+
+    settings = UltronSettings()
+    settings.validate_paths()
+    uvicorn.run(create_app(UltronRuntime(settings)), host=settings.api_host, port=settings.api_port)
+
+
+def _safe_load(store: ProjectStateStore) -> Project | None:
+    try:
+        return store.load()
+    except FileNotFoundError:
+        return None
+
+
+def _active_phase(store: ProjectStateStore) -> Phase | None:
+    project = _safe_load(store)
+    if project is None or project.active_phase_id is None:
+        return None
+    return next(
+        (phase for phase in project.phases if phase.id == project.active_phase_id),
+        None,
+    )
 
 
 if __name__ == "__main__":
