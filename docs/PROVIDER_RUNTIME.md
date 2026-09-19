@@ -20,9 +20,21 @@ Anthropic's documented Models API is an API catalog endpoint; this adapter there
 
 Cursor's current Cloud Agents API is public beta and may change; the adapter keeps the endpoint and response parsing isolated for that reason.
 
+## CLI
+
+The read-only adapters can be probed without placing credentials on the command line:
+
+`ultron provider-status --provider chatgpt --response-id <response-id>`
+
+`ultron provider-status --provider claude`
+
+`ultron provider-status --provider cursor --agent-id <agent-id> --run-id <run-id>`
+
+Credentials are read from environment variables.
+
 ## Secrets
 
-API keys are accepted directly or read from environment variables:
+API keys are accepted directly by the Python adapters or read from environment variables:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -34,12 +46,12 @@ Keys are never placed in provider snapshots or audit records.
 
 These adapters are read-only. They do not send prompts, execute code, create agents, or modify repositories.
 
-The next integration can add an explicit provider registry and connect these snapshots to the Phase 13 workflow engine.
+The adapters are intentionally isolated from the execution layer. Any future write-capable provider control must pass through the existing decision, approval, safety, and audit boundaries.
 
 ## Verified current integration surfaces
 
-OpenAI's current API platform exposes programmatic agent workflows through the Responses API. citeturn235760search2
+OpenAI's current API platform exposes programmatic agent workflows through the Responses API. https://openai.com/api/
 
-Anthropic documents `GET /v1/models` as its Models API endpoint. citeturn514294view1
+Anthropic documents `GET /v1/models` as its Models API endpoint. https://platform.claude.com/docs/en/api/models/list
 
-Cursor documents Cloud Agents as a programmatic API and documents `GET /v1/agents/{id}/runs/{runId}` for run state/result retrieval. citeturn685454search0
+Cursor documents Cloud Agents as a programmatic API and documents `GET /v1/agents/{id}/runs/{runId}` for run state/result retrieval. https://cursor.com/docs/cloud-agent/api/endpoints
