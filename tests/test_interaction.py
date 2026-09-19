@@ -9,6 +9,7 @@ from ultron.safety import ActionRisk
 class FakeAdapter:
     sent: list[str]
     received_approval: bool = False
+    received_correlation_id: str | None = None
 
     @property
     def provider(self) -> str:
@@ -22,6 +23,7 @@ class FakeAdapter:
     ) -> InteractionResult:
         self.sent.append(prompt)
         self.received_approval = approval is not None
+        self.received_correlation_id = correlation_id
         return InteractionResult("interaction-1", self.provider, True, "sent", correlation_id)
 
 
@@ -50,9 +52,15 @@ def test_interaction_requires_approval() -> None:
 def test_interaction_sends_after_approval() -> None:
     adapter = FakeAdapter([])
 
-    result = InteractionGateway().send(adapter, "continue", approval=approved())
+    result = InteractionGateway().send(
+        adapter,
+        "continue",
+        approval=approved(),
+        correlation_id="run-1",
+    )
 
     assert result.accepted is True
-    assert result.correlation_id
+    assert result.correlation_id == "run-1"
+    assert adapter.received_correlation_id == "run-1"
     assert adapter.sent == ["continue"]
     assert adapter.received_approval is True
