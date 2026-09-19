@@ -30,6 +30,7 @@ class ProviderInteractionAdapter(Protocol):
         prompt: str,
         correlation_id: str,
         approval: ApprovalRequest | None = None,
+        requires_approval: bool = True,
     ) -> InteractionResult: ...
 
 
@@ -69,4 +70,5 @@ class InteractionGateway:
             prompt,
             workflow_id,
             approval=approval,
+            requires_approval=requires_approval,
         )
