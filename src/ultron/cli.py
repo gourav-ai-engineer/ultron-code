@@ -25,6 +25,7 @@ from .planner import ProjectPlanner
 from .provider_registry import ProviderRegistry
 from .provider_runtime import ProviderRequestError
 from .providers import ProviderAdapter, ProviderKind
+from .reasoning import GeminiReasoner
 from .run_store import RunStore
 from .runtime import UltronRuntime
 from .safety import ActionRisk, SafetyPolicy
@@ -163,6 +164,24 @@ def _build_provider(
         session_id,
     )
     return registry.create(normalized, **kwargs)
+
+
+def _build_reasoner(reasoner: str, settings: UltronSettings) -> GeminiReasoner | None:
+    normalized = reasoner.strip().lower()
+    if normalized in {"none", "off", "disabled"}:
+        return None
+    if normalized != "gemini":
+        raise typer.BadParameter("Use gemini or none for the reasoning provider.")
+    if settings.gemini_api_key is None:
+        raise typer.BadParameter(
+            "Gemini reasoning was requested but GEMINI_API_KEY is not configured."
+        )
+    return GeminiReasoner(
+        inference=__import__("ultron.inference", fromlist=["GeminiInference"]).GeminiInference(
+            model="gemini-3.8-flash",
+            api_key=settings.gemini_api_key.get_secret_value(),
+        )
+    )
 
 
 @app.command()
@@ -466,6 +485,10 @@ def execute(
 @app.command()
 def workflow_run(
     workspace: Path = typer.Option(Path(".")),
+    reasoner: str = typer.Option(
+        "gemini",
+        help="Advisory reasoning provider: gemini or none.",
+    ),
     state_path: Path = typer.Option(Path(".ultron/project.json")),
     runs_path: Path = typer.Option(Path(".ultron/runs.jsonl")),
     provider: str = typer.Option("mock"),
@@ -514,8 +537,10 @@ def workflow_run(
             if project is not None and project.active_phase_id is not None
             else None
         )
+        settings_reasoning = _build_reasoner(reasoner, settings)
         engine = WorkflowEngine(
             WorkspaceObserver(workspace),
+            reasoner=settings_reasoning,
             executor=(
                 ActionExecutor(
                     workspace,
@@ -758,6 +783,10 @@ def run_loop(
 @app.command()
 def auto_loop(
     provider: str = typer.Option("screen-chatgpt"),
+    reasoner: str = typer.Option(
+        "gemini",
+        help="Advisory reasoning provider: gemini or none.",
+    ),
     workspace: Path = typer.Option(Path(".")),
     state_path: Path = typer.Option(Path(".ultron/project.json")),
     runs_path: Path = typer.Option(Path(".ultron/runs.jsonl")),
@@ -818,8 +847,12 @@ def auto_loop(
     )
     project_store = ProjectStateStore(settings.resolve_path(state_path))
     audit_logger = AuditLogger(settings.resolve_path(settings.audit_path))
+    engine = WorkflowEngine(
+        WorkspaceObserver(workspace),
+        reasoner=_build_reasoner(reasoner, settings),
+    )
     runner = AutonomousRunner(
-        WorkflowEngine(WorkspaceObserver(workspace)),
+        engine,
         observer,
         interaction=interaction,
         config=AutonomousLoopConfig(
