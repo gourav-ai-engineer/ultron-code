@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
+from .approval import ApprovalRequest
 from .correlation import ProgressAssessment, ProgressCorrelator
 from .decision import Decision, DecisionEngine
 from .executor import ActionExecutor, ExecutionResult
@@ -78,13 +79,17 @@ class WorkflowEngine:
         self,
         run: WorkflowRun,
         action: str,
-        approval=None,
+        approval: ApprovalRequest | None = None,
     ) -> WorkflowRun:
         """Execute one explicitly supplied action within an existing run."""
         if self.executor is None:
             raise RuntimeError("WorkflowEngine has no ActionExecutor configured.")
 
-        result = self.executor.execute(action, approval=approval, correlation_id=run.run_id)
+        result = self.executor.execute(
+            action,
+            approval=approval,
+            correlation_id=run.run_id,
+        )
         return WorkflowRun(
             run_id=run.run_id,
             started_at=run.started_at,
