@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import json
 import os
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -72,17 +73,31 @@ class GeminiInference:
                 }
             ]
         }
-        url = f"{self.base_url.rstrip('/')}/models/{self.model}:generateContent"
-        response = self.poster(
-            url,
-            {"x-goog-api-key": api_key},
-            payload,
-        )
 
-        text = _gemini_text(response)
-        if not text:
-            raise InferenceRequestError("Gemini returned no text output.")
-        return InferenceResult("gemini", self.model, text)
+        last_error: InferenceRequestError | None = None
+        models = _gemini_model_candidates(self.model)
+        for model in models:
+            url = f"{self.base_url.rstrip('/')}/models/{model}:generateContent"
+            try:
+                response = _generate_with_retry(
+                    self.poster,
+                    url,
+                    {"x-goog-api-key": api_key},
+                    payload,
+                )
+            except InferenceRequestError as exc:
+                last_error = exc
+                if not _is_retryable_error(exc):
+                    raise
+                continue
+
+            text = _gemini_text(response)
+            if text:
+                return InferenceResult("gemini", model, text)
+
+            last_error = InferenceRequestError("Gemini returned no text output.")
+
+        raise last_error or InferenceRequestError("Gemini generation failed.")
 
 
 @dataclass
@@ -139,6 +154,38 @@ class OllamaInference:
             raise InferenceRequestError("Ollama returned no text output.")
         return InferenceResult("ollama", self.model, text.strip())
 
+
+
+def _generate_with_retry(
+    poster: JsonPoster,
+    url: str,
+    headers: Mapping[str, str],
+    payload: JsonObject,
+    attempts: int = 3,
+) -> JsonObject:
+    """Retry transient provider failures with exponential backoff."""
+    last_error: InferenceRequestError | None = None
+    for attempt in range(attempts):
+        try:
+            return poster(url, headers, payload)
+        except InferenceRequestError as exc:
+            last_error = exc
+            if not _is_retryable_error(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(2**attempt)
+    raise last_error or InferenceRequestError("Provider request failed.")
+
+
+def _is_retryable_error(exc: InferenceRequestError) -> bool:
+    message = str(exc)
+    return any(code in message for code in ("408", "429", "500", "502", "503", "504"))
+
+
+def _gemini_model_candidates(model: str) -> tuple[str, ...]:
+    candidates = [model]
+    if model == "gemini-3.8-flash":
+        candidates.extend(("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"))
+    return tuple(dict.fromkeys(candidates))
 
 def _gemini_text(payload: JsonObject) -> str:
     candidates = payload.get("candidates")
