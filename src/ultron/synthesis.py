@@ -52,6 +52,11 @@ class PromptSynthesizer:
         )
         provider_summary = redact_secrets(provider.summary.strip() or "no summary")
         provider_context = f"Provider state: {provider_summary}."
+        advisory_context = (
+            f"Advisory reasoning:\n{redact_secrets(advisory.strip())}"
+            if advisory is not None and advisory.strip()
+            else "Advisory reasoning: unavailable."
+        )
         evidence = (
             f"{phase_context}\n{criteria}\n{workspace_context}\n"
             f"{provider_context}\nProgress assessment: {assessment.state.value} "
