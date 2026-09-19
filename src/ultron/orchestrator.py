@@ -1,6 +1,6 @@
 """Phase orchestration logic for ULTRON CODE."""
 
-from .models import PhaseStatus, Project
+from .models import Phase, PhaseStatus, Project
 
 
 class Orchestrator:
@@ -9,15 +9,18 @@ class Orchestrator:
     def __init__(self, project: Project) -> None:
         self.project = project
 
-    def next_pending_phase(self):
+    def next_pending_phase(self) -> Phase | None:
         """Return the first pending phase, if one exists."""
         return next(
             (phase for phase in self.project.phases if phase.status == PhaseStatus.PENDING),
             None,
         )
 
-    def start_next_phase(self):
-        """Activate the next pending phase and return it."""
+    def start_next_phase(self) -> Phase | None:
+        """Activate the next pending phase when no phase is already active."""
+        if self.project.active_phase_id is not None:
+            raise RuntimeError("An active phase already exists.")
+
         phase = self.next_pending_phase()
         if phase is None:
             return None
