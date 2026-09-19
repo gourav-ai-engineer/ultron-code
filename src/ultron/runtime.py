@@ -23,7 +23,7 @@ class UltronRuntime:
         self.settings = settings or UltronSettings()
         self.settings.validate_paths()
         self.registry = registry or ProviderRegistry()
-        self.run_store = RunStore(self.settings.runs_path)
+        self.run_store = RunStore(self.settings.resolve_path(self.settings.runs_path))
 
     def provider(self, kind: str, **kwargs: Any) -> ProviderAdapter:
         """Create a provider from the central registry."""
@@ -51,9 +51,7 @@ class UltronRuntime:
         """Load the configured project state when it exists."""
         from .state import ProjectStateStore
 
-        path = self.settings.state_path
-        if not path.is_absolute():
-            path = self.settings.workspace / path
+        path = self.settings.resolve_path(self.settings.state_path)
         try:
             return ProjectStateStore(path).load()
         except FileNotFoundError:
