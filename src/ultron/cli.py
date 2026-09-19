@@ -177,10 +177,10 @@ def _build_reasoner(reasoner: str, settings: UltronSettings) -> GeminiReasoner |
             "Gemini reasoning was requested but GEMINI_API_KEY is not configured."
         )
     return GeminiReasoner(
-        inference=__import__("ultron.inference", fromlist=["GeminiInference"]).GeminiInference(
+        inference=GeminiInference(
             model="gemini-3.8-flash",
             api_key=settings.gemini_api_key.get_secret_value(),
-        )
+        ),
     )
 
 
