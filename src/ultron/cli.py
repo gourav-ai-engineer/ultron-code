@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from .approval import ApprovalGateway, ApprovalStatus
+from .executor import ActionExecutor, ExecutionDeniedError
 from .models import Phase, Project
 from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
@@ -17,9 +18,9 @@ app = typer.Typer(help="ULTRON CODE development orchestrator")
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.4.0")
-    typer.echo("Mode: dry-run")
-    typer.echo("Status: planning, orchestration, safety, and approvals available")
+    typer.echo("ULTRON CODE v0.5.0")
+    typer.echo("Mode: dry-run by default")
+    typer.echo("Status: planning, orchestration, safety, approvals, and controlled execution available")
 
 
 @app.command()
@@ -117,6 +118,44 @@ def approval_resolve(
     request = ApprovalGateway(approvals_path).resolve(request_id, resolution, note)
     typer.echo(f"Request: {request.request_id}")
     typer.echo(f"Status: {request.status.value}")
+
+
+@app.command()
+def execute(
+    action: str = typer.Option(..., prompt="Allowlisted action"),
+    workspace: Path = typer.Option(Path(".")),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Execute the allowlisted action. Without --live, dry-run blocks execution.",
+    ),
+    approval_id: str | None = typer.Option(None, "--approval-id"),
+    approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
+) -> None:
+    """Evaluate and optionally execute one allowlisted action."""
+    approval = None
+    if approval_id is not None:
+        approval = ApprovalGateway(approvals_path).get(approval_id)
+
+    executor = ActionExecutor(
+        workspace,
+        safety_policy=SafetyPolicy(dry_run=not live),
+    )
+
+    try:
+        result = executor.execute(action, approval=approval)
+    except ExecutionDeniedError as exc:
+        typer.echo(f"Execution denied: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Exit code: {result.return_code}")
+    typer.echo(f"Timed out: {result.timed_out}")
+    if result.stdout:
+        typer.echo("STDOUT:")
+        typer.echo(result.stdout.rstrip())
+    if result.stderr:
+        typer.echo("STDERR:")
+        typer.echo(result.stderr.rstrip())
 
 
 if __name__ == "__main__":
