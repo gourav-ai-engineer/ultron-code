@@ -1,4 +1,4 @@
-""""Command-line entry point for ULTRON CODE."""
+"""Command-line entry point for ULTRON CODE."""
 
 from pathlib import Path
 
@@ -9,13 +9,8 @@ from .executor import ActionExecutor, ExecutionDeniedError
 from .models import Phase, Project
 from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
-from .provider_runtime import (
-    AnthropicModelsAdapter,
-    CursorCloudRunAdapter,
-    OpenAIResponseAdapter,
-    ProviderRequestError,
-)
-from .providers import MockProvider
+from .provider_registry import ProviderRegistry
+from .provider_runtime import ProviderRequestError
 from .safety import SafetyPolicy
 from .state import ProjectStateStore
 from .workflow import WorkflowEngine
@@ -24,13 +19,67 @@ from .workspace import WorkspaceObserver
 app = typer.Typer(help="ULTRON CODE development orchestrator")
 
 
+def _provider_kwargs(
+    provider: str,
+    response_id: str | None,
+    agent_id: str | None,
+    provider_run_id: str | None,
+    summary: str,
+    progress: float | None,
+    session_id: str | None,
+) -> dict[str, object]:
+    normalized = provider.strip().lower()
+    if normalized == "mock":
+        return {
+            "summary": summary,
+            "progress": progress,
+            "session_id": session_id,
+        }
+    if normalized == "chatgpt":
+        if response_id is None:
+            raise typer.BadParameter("response_id is required for chatgpt.")
+        return {"response_id": response_id}
+    if normalized == "claude":
+        return {}
+    if normalized == "cursor":
+        if agent_id is None or provider_run_id is None:
+            raise typer.BadParameter(
+                "agent_id and provider_run_id are required for cursor."
+            )
+        return {"agent_id": agent_id, "run_id": provider_run_id}
+    raise typer.BadParameter("Use mock, chatgpt, claude, or cursor.")
+
+
+def _build_provider(
+    registry: ProviderRegistry,
+    provider: str,
+    response_id: str | None = None,
+    agent_id: str | None = None,
+    provider_run_id: str | None = None,
+    summary: str = "No activity recorded.",
+    progress: float | None = None,
+    session_id: str | None = None,
+):
+    kwargs = _provider_kwargs(
+        provider,
+        response_id,
+        agent_id,
+        provider_run_id,
+        summary,
+        progress,
+        session_id,
+    )
+    return registry.create(provider.strip().lower(), **kwargs)
+
+
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.7.0")
+    typer.echo("ULTRON CODE v0.8.0")
     typer.echo("Mode: dry-run by default")
     typer.echo(
-        "Status: planning, orchestration, safety, approvals, workflow, and provider runtime available"
+        "Status: planning, orchestration, safety, approvals, workflow, "
+        "provider registry, and controlled execution available"
     )
 
 
@@ -46,8 +95,16 @@ def init(
         goal=goal,
         phases=[
             Phase(id="phase-1", title="Architecture", objective="Define the system architecture"),
-            Phase(id="phase-2", title="Implementation", objective="Implement the first functional slice"),
-            Phase(id="phase-3", title="Validation", objective="Run tests and verify acceptance criteria"),
+            Phase(
+                id="phase-2",
+                title="Implementation",
+                objective="Implement the first functional slice",
+            ),
+            Phase(
+                id="phase-3",
+                title="Validation",
+                objective="Run tests and verify acceptance criteria",
+            ),
         ],
     )
     ProjectStateStore(state_path).save(project)
@@ -84,42 +141,33 @@ def next_phase(state_path: Path = typer.Option(Path(".ultron/project.json"))) ->
 
 @app.command()
 def provider_status(
-    provider: str = typer.Option(..., prompt="Provider (chatgpt/claude/cursor)"),
+    provider: str = typer.Option(..., prompt="Provider (chatgpt/claude/cursor/mock)"),
     response_id: str | None = typer.Option(None, help="OpenAI response ID"),
     agent_id: str | None = typer.Option(None, help="Cursor Cloud Agent ID"),
-    run_id: str | None = typer.Option(None, help="Cursor Cloud Agent run ID"),
+    provider_run_id: str | None = typer.Option(None, help="Cursor Cloud Agent run ID"),
 ) -> None:
-    """Probe one configured provider through its read-only runtime adapter."""
-    normalized = provider.strip().lower()
-
+    """Probe one registered provider through its read-only runtime adapter."""
+    registry = ProviderRegistry()
     try:
-        if normalized == "chatgpt":
-            if response_id is None:
-                raise typer.BadParameter("response_id is required for chatgpt.")
-            adapter = OpenAIResponseAdapter(response_id)
-        elif normalized == "claude":
-            adapter = AnthropicModelsAdapter()
-        elif normalized == "cursor":
-            if agent_id is None or run_id is None:
-                raise typer.BadParameter("agent_id and run_id are required for cursor.")
-            adapter = CursorCloudRunAdapter(agent_id, run_id)
-        else:
-            raise typer.BadParameter("Use chatgpt, claude, or cursor.")
-
+        adapter = _build_provider(
+            registry,
+            provider,
+            response_id=response_id,
+            agent_id=agent_id,
+            provider_run_id=provider_run_id,
+        )
         health = adapter.health_check()
         typer.echo(f"Provider: {health.provider.value}")
         typer.echo(f"Health: {health.status.value}")
         typer.echo(f"Message: {health.message}")
 
-        if health.status.value == "available":
-            try:
-                snapshot = adapter.snapshot()
-            except ProviderRequestError as exc:
-                typer.echo(f"Snapshot unavailable: {exc}")
-                raise typer.Exit(code=1) from exc
-            typer.echo(f"Session: {snapshot.session_id or 'n/a'}")
-            typer.echo(f"Summary: {snapshot.summary}")
-            typer.echo(f"Progress: {snapshot.progress if snapshot.progress is not None else 'n/a'}")
+        if health.status.value != "available":
+            return
+
+        snapshot = adapter.snapshot()
+        typer.echo(f"Session: {snapshot.session_id or 'n/a'}")
+        typer.echo(f"Summary: {snapshot.summary}")
+        typer.echo(f"Progress: {snapshot.progress if snapshot.progress is not None else 'n/a'}")
     except ProviderRequestError as exc:
         typer.echo(f"Provider unavailable: {exc}")
         raise typer.Exit(code=1) from exc
@@ -217,9 +265,13 @@ def execute(
 def workflow_run(
     workspace: Path = typer.Option(Path(".")),
     state_path: Path = typer.Option(Path(".ultron/project.json")),
+    provider: str = typer.Option("mock", help="Provider: mock, chatgpt, claude, or cursor"),
     provider_summary: str = typer.Option("No activity recorded."),
     progress: float | None = typer.Option(None, min=0.0, max=1.0),
-    session_id: str | None = typer.Option(None),
+    session_id: str | None = typer.Option(None, help="Mock provider session ID"),
+    response_id: str | None = typer.Option(None, help="OpenAI response ID"),
+    agent_id: str | None = typer.Option(None, help="Cursor Cloud Agent ID"),
+    provider_run_id: str | None = typer.Option(None, help="Cursor Cloud Agent run ID"),
     action: str | None = typer.Option(
         None,
         help="Optional explicitly supplied allowlisted action to execute after observation.",
@@ -232,18 +284,29 @@ def workflow_run(
     approval_id: str | None = typer.Option(None, "--approval-id"),
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
 ) -> None:
-    """Run one end-to-end observation cycle and optionally execute an explicit action."""
+    """Run one provider-backed observation cycle and optionally execute an explicit action."""
     try:
         project = ProjectStateStore(state_path).load()
         has_active_phase = project.active_phase_id is not None
     except FileNotFoundError:
         has_active_phase = False
 
-    provider = MockProvider(
-        summary=provider_summary,
-        progress=progress,
-        session_id=session_id,
-    )
+    registry = ProviderRegistry()
+    try:
+        selected_provider = _build_provider(
+            registry,
+            provider,
+            response_id=response_id,
+            agent_id=agent_id,
+            provider_run_id=provider_run_id,
+            summary=provider_summary,
+            progress=progress,
+            session_id=session_id,
+        )
+    except (ProviderRequestError, ValueError) as exc:
+        typer.echo(f"Provider configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
     executor = (
         ActionExecutor(
             workspace,
@@ -253,7 +316,12 @@ def workflow_run(
         else None
     )
     engine = WorkflowEngine(WorkspaceObserver(workspace), executor=executor)
-    run = engine.observe(provider, has_active_phase=has_active_phase)
+
+    try:
+        run = engine.observe(selected_provider, has_active_phase=has_active_phase)
+    except ProviderRequestError as exc:
+        typer.echo(f"Provider observation failed: {exc}")
+        raise typer.Exit(code=1) from exc
 
     typer.echo(f"Run ID: {run.run_id}")
     typer.echo(f"Provider: {run.provider.provider.value}")
