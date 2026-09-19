@@ -32,6 +32,7 @@ class PromptSynthesizer:
         workspace: WorkspaceSnapshot,
         assessment: ProgressAssessment,
         decision: Decision,
+        advisory: str | None = None,
     ) -> PromptProposal:
         phase_context = (
             f"Current phase: {phase.title} ({phase.id}). Objective: {redact_secrets(phase.objective)}"
@@ -88,8 +89,9 @@ class PromptSynthesizer:
             )
         if decision == DecisionKind.REVIEW:
             return (
-                "Inspect the current repository state and your latest work. "
-                "Determine the smallest concrete task needed to make measurable progress."
+                "Use the advisory reasoning as an input, then inspect the current repository "
+                "state and your latest work. Determine the smallest concrete task needed to "
+                "make measurable progress and validate it safely."
             )
         if state == ProgressState.PROGRESSING:
             return (
