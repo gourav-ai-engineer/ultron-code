@@ -1,13 +1,15 @@
 """Optional local HTTP API for ULTRON CODE."""
 
+from pathlib import Path
 from typing import Any
 import hmac
 
+from .control import ControlStore
 from .provider_runtime import ProviderRequestError
 from .runtime import UltronRuntime
 
 
-def create_app(runtime: UltronRuntime | None = None):
+def create_app(runtime: UltronRuntime | None = None) -> Any:
     """Create the FastAPI application without importing FastAPI at module load."""
     try:
         from fastapi import FastAPI, Header, HTTPException
@@ -19,7 +21,7 @@ def create_app(runtime: UltronRuntime | None = None):
         ) from exc
 
     runtime = runtime or UltronRuntime()
-    app = FastAPI(title="ULTRON CODE", version="0.9.0")
+    app = FastAPI(title="ULTRON CODE", version="1.0.0")
 
     class ObservationRequest(BaseModel):
         provider: str = "mock"
@@ -46,6 +48,10 @@ def create_app(runtime: UltronRuntime | None = None):
             name="dashboard",
         )
 
+    control_store = ControlStore(
+        runtime.settings.resolve_path(runtime.settings.control_path)
+    )
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {
@@ -54,25 +60,109 @@ def create_app(runtime: UltronRuntime | None = None):
             "workspace": str(runtime.settings.workspace.resolve()),
             "dry_run": runtime.settings.dry_run,
             "automation_enabled": runtime.settings.automation_enabled,
+            "auto_prompt_enabled": runtime.settings.auto_prompt_enabled,
         }
 
     @app.get("/providers")
-    def providers(authorization: str | None = Header(default=None)) -> dict[str, list[str]]:
+    def providers(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, list[str]]:
         require_token(authorization)
         return {"providers": [item.value for item in runtime.registry.available()]}
 
     @app.get("/runs")
-    def runs(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+    def runs(
+        authorization: str | None = Header(default=None),
+    ) -> list[dict[str, object]]:
         require_token(authorization)
         return runtime.run_store.all()
 
     @app.get("/runs/latest")
-    def latest_run(authorization: str | None = Header(default=None)) -> dict[str, object]:
+    def latest_run(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
         require_token(authorization)
         latest = runtime.run_store.latest()
         if latest is None:
             raise HTTPException(status_code=404, detail="No workflow runs recorded.")
         return latest
+
+    @app.get("/runs/{run_id}")
+    def run_by_id(
+        run_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        try:
+            for payload in runtime.run_store.all():
+                if payload.get("run_id") == run_id:
+                    return payload
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail="Invalid run history.") from exc
+        raise HTTPException(status_code=404, detail="Workflow run not found.")
+
+    @app.get("/control")
+    def control(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        state = control_store.get()
+        return {
+            "emergency_stop": state.emergency_stop,
+            "paused": state.paused,
+            "reason": state.reason,
+        }
+
+    @app.post("/control/stop")
+    def stop_control(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        state = control_store.set(
+            emergency_stop=True,
+            reason="HTTP control plane requested emergency stop.",
+        )
+        return {"emergency_stop": state.emergency_stop, "reason": state.reason}
+
+    @app.post("/control/pause")
+    def pause_control(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        state = control_store.set(
+            paused=True,
+            reason="HTTP control plane requested pause.",
+        )
+        return {"paused": state.paused, "reason": state.reason}
+
+    @app.post("/control/resume")
+    def resume_control(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        current = control_store.get()
+        if current.emergency_stop:
+            raise HTTPException(
+                status_code=409,
+                detail="Emergency stop is active; clear it before resuming.",
+            )
+        state = control_store.set(paused=False, reason="")
+        return {"paused": state.paused, "reason": state.reason}
+
+    @app.post("/control/clear")
+    def clear_control(
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+        state = control_store.set(
+            emergency_stop=False,
+            paused=False,
+            reason="",
+        )
+        return {
+            "emergency_stop": state.emergency_stop,
+            "paused": state.paused,
+        }
 
     @app.post("/runs/observe")
     def observe(
