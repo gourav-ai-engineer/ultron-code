@@ -25,7 +25,12 @@ class ProviderInteractionAdapter(Protocol):
     @property
     def provider(self) -> str: ...
 
-    def send_prompt(self, prompt: str, correlation_id: str) -> InteractionResult: ...
+    def send_prompt(
+        self,
+        prompt: str,
+        correlation_id: str,
+        approval: ApprovalRequest | None = None,
+    ) -> InteractionResult: ...
 
 
 class InteractionGateway:
@@ -59,4 +64,4 @@ class InteractionGateway:
                 correlation_id=correlation_id,
             )
 
-        return adapter.send_prompt(prompt, correlation_id)
+        return adapter.send_prompt(prompt, correlation_id, approval=approval)
