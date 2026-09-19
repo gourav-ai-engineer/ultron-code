@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,24 @@ class UltronSettings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8765, ge=1, le=65535)
     api_token: SecretStr | None = None
+
+    # Free-first model providers.
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY"),
+    )
+    openrouter_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY"),
+    )
+    ollama_host: str = Field(
+        default="http://127.0.0.1:11434",
+        validation_alias=AliasChoices("OLLAMA_HOST"),
+    )
+    ollama_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OLLAMA_MODEL"),
+    )
 
     def validate_paths(self) -> None:
         """Ensure mutable state locations are inside the configured workspace."""
