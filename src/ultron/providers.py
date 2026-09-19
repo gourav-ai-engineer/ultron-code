@@ -9,6 +9,9 @@ class ProviderKind(StrEnum):
     CHATGPT = "chatgpt"
     CLAUDE = "claude"
     CURSOR = "cursor"
+    GEMINI = "gemini"
+    OPENROUTER = "openrouter"
+    OLLAMA = "ollama"
     MOCK = "mock"
 
 
