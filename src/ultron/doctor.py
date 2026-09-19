@@ -2,10 +2,10 @@
 
 from dataclasses import dataclass
 import importlib.util
+import os
+from pathlib import Path
 import shutil
 import sys
-from pathlib import Path
-import os
 
 from .settings import UltronSettings
 
@@ -41,10 +41,7 @@ class Doctor:
             )
         )
 
-        workspace_ok = (
-            self.settings.workspace.exists()
-            and self.settings.workspace.is_dir()
-        )
+        workspace_ok = self.settings.workspace.exists() and self.settings.workspace.is_dir()
         diagnostics.append(
             Diagnostic(
                 "workspace",
@@ -76,9 +73,7 @@ class Doctor:
         )
 
         diagnostics.append(self._module("fastapi", "API dependency"))
-        diagnostics.append(
-            self._module("pyautogui", "desktop automation dependency")
-        )
+        diagnostics.append(self._module("pyautogui", "desktop automation dependency"))
         diagnostics.append(self._module("PIL", "OCR image dependency"))
         diagnostics.append(self._module("pytesseract", "OCR Python dependency"))
 
@@ -95,15 +90,29 @@ class Doctor:
             )
         )
 
-        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CURSOR_API_KEY"):
-            value = self._env(name)
-            diagnostics.append(
-                Diagnostic(
-                    name.lower(),
-                    bool(value),
-                    "configured" if value else "not configured",
-                )
+        diagnostics.append(
+            Diagnostic(
+                "gemini_api_key",
+                bool(self._env("GEMINI_API_KEY")),
+                "configured" if self._env("GEMINI_API_KEY") else "not configured",
             )
+        )
+        diagnostics.append(
+            Diagnostic(
+                "openrouter_api_key",
+                bool(self._env("OPENROUTER_API_KEY")),
+                "configured" if self._env("OPENROUTER_API_KEY") else "not configured",
+            )
+        )
+
+        ollama_path = shutil.which("ollama")
+        diagnostics.append(
+            Diagnostic(
+                "ollama",
+                ollama_path is not None,
+                "Ollama executable available" if ollama_path else "Ollama not installed",
+            )
+        )
 
         return tuple(diagnostics)
 
@@ -111,7 +120,16 @@ class Doctor:
         """Return whether required diagnostics pass."""
         diagnostics = self.check()
         required = {"python", "workspace", "git", "configuration_paths"}
-        optional = {"fastapi", "pyautogui", "PIL", "pytesseract", "tesseract"}
+        optional = {
+            "fastapi",
+            "pyautogui",
+            "PIL",
+            "pytesseract",
+            "tesseract",
+            "gemini_api_key",
+            "openrouter_api_key",
+            "ollama",
+        }
 
         return all(
             item.ok
