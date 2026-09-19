@@ -810,9 +810,7 @@ def validate(
     live: bool = typer.Option(False, "--live"),
 ) -> None:
     """Run explicitly supplied allowlisted validation commands."""
-    commands = tuple(command or ("python", "-m", "pytest"))
-    if command:
-        commands = (str(command[0]),) if len(command) == 1 else (" ".join(command),)
+    commands = (" ".join(command),) if command else ("python -m pytest",)
 
     executor = ActionExecutor(
         workspace,
