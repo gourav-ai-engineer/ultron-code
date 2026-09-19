@@ -84,6 +84,27 @@ class OpenAIResponseAdapter:
         output_text = payload.get("output_text")
         if isinstance(output_text, str) and output_text.strip():
             return output_text.strip()[:2000]
+
+        output = payload.get("output")
+        if isinstance(output, list):
+            parts: list[str] = []
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                content = item.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") not in {"output_text", "text"}:
+                        continue
+                    text = block.get("text")
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+            if parts:
+                return "\n".join(parts)[:2000]
+
         status = str(payload.get("status", "unknown"))
         return f"OpenAI response status: {status}"
 
