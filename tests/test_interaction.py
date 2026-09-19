@@ -8,14 +8,35 @@ from ultron.safety import ActionRisk
 @dataclass
 class FakeAdapter:
     sent: list[str]
+    received_approval: bool = False
 
     @property
     def provider(self) -> str:
         return "fake"
 
-    def send_prompt(self, prompt: str, correlation_id: str) -> InteractionResult:
+    def send_prompt(
+        self,
+        prompt: str,
+        correlation_id: str,
+        approval: ApprovalRequest | None = None,
+    ) -> InteractionResult:
         self.sent.append(prompt)
+        self.received_approval = approval is not None
         return InteractionResult("interaction-1", self.provider, True, "sent", correlation_id)
+
+
+def approved() -> ApprovalRequest:
+    return ApprovalRequest(
+        request_id="req-1",
+        action="send prompt",
+        rationale="Continue implementation",
+        risk=ActionRisk.REQUIRES_APPROVAL,
+        status=ApprovalStatus.APPROVED,
+        requested_at="2026-09-19T00:00:00+00:00",
+        resolved_at="2026-09-19T00:01:00+00:00",
+        resolution_note="Approved",
+        correlation_id="run-1",
+    )
 
 
 def test_interaction_requires_approval() -> None:
@@ -28,19 +49,10 @@ def test_interaction_requires_approval() -> None:
 
 def test_interaction_sends_after_approval() -> None:
     adapter = FakeAdapter([])
-    approval = ApprovalRequest(
-        request_id="req-1",
-        action="send prompt",
-        rationale="Continue implementation",
-        risk=ActionRisk.REQUIRES_APPROVAL,
-        status=ApprovalStatus.APPROVED,
-        requested_at="2026-09-19T00:00:00+00:00",
-        resolved_at="2026-09-19T00:01:00+00:00",
-        resolution_note="Approved",
-        correlation_id="run-1",
-    )
 
-    result = InteractionGateway().send(adapter, "continue", approval=approval)
+    result = InteractionGateway().send(adapter, "continue", approval=approved())
 
     assert result.accepted is True
+    assert result.correlation_id
     assert adapter.sent == ["continue"]
+    assert adapter.received_approval is True
