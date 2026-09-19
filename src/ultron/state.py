@@ -1,6 +1,5 @@
 """Persistent local state storage for ULTRON CODE."""
 
-import json
 from pathlib import Path
 
 from .models import Project
