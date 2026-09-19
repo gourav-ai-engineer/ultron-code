@@ -5,6 +5,7 @@ import importlib.util
 import shutil
 import sys
 from pathlib import Path
+import os
 
 from .settings import UltronSettings
 
@@ -27,90 +28,96 @@ class Doctor:
     def check(self) -> tuple[Diagnostic, ...]:
         diagnostics: list[Diagnostic] = []
 
+        python_ok = sys.version_info >= (3, 11) and sys.version_info < (3, 15)
         diagnostics.append(
             Diagnostic(
                 "python",
-                sys.version_info >= (3, 11) and sys.version_info < (3, 15),
-                f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+                python_ok,
+                (
+                    f"Python {sys.version_info.major}."
+                    f"{sys.version_info.minor}."
+                    f"{sys.version_info.micro}"
+                ),
             )
+        )
+
+        workspace_ok = (
+            self.settings.workspace.exists()
+            and self.settings.workspace.is_dir()
         )
         diagnostics.append(
             Diagnostic(
                 "workspace",
-                self.settings.workspace.exists() and self.settings.workspace.is_dir(),
+                workspace_ok,
                 str(self.settings.workspace.resolve()),
             )
         )
+
+        git_path = shutil.which("git")
         diagnostics.append(
             Diagnostic(
                 "git",
-                shutil.which("git") is not None,
-                "git available on PATH" if shutil.which("git") else "git not found on PATH",
+                git_path is not None,
+                "git available on PATH" if git_path else "git not found on PATH",
             )
         )
+
+        paths_ok = self._check_paths()
         diagnostics.append(
             Diagnostic(
                 "configuration_paths",
-                self._check_paths(),
-                "configured paths remain inside the workspace"
-                if self._check_paths()
-                else "one or more configured paths escape the workspace",
+                paths_ok,
+                (
+                    "configured paths remain inside the workspace"
+                    if paths_ok
+                    else "one or more configured paths escape the workspace"
+                ),
             )
         )
+
         diagnostics.append(self._module("fastapi", "API dependency"))
-        diagnostics.append(self._module("pyautogui", "desktop automation dependency"))
+        diagnostics.append(
+            self._module("pyautogui", "desktop automation dependency")
+        )
         diagnostics.append(self._module("PIL", "OCR image dependency"))
         diagnostics.append(self._module("pytesseract", "OCR Python dependency"))
+
+        tesseract_path = shutil.which("tesseract") or self._tesseract_override()
         diagnostics.append(
             Diagnostic(
                 "tesseract",
-                shutil.which("tesseract") is not None
-                or bool(self._tesseract_override()),
-                "Tesseract executable available"
-                if shutil.which("tesseract") or self._tesseract_override()
-                else "Tesseract executable not found",
+                tesseract_path is not None,
+                (
+                    "Tesseract executable available"
+                    if tesseract_path
+                    else "Tesseract executable not found"
+                ),
             )
         )
-        diagnostics.append(
-            Diagnostic(
-                "openai_key",
-                bool(self._env("OPENAI_API_KEY")),
-                "configured" if self._env("OPENAI_API_KEY") else "not configured",
+
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CURSOR_API_KEY"):
+            value = self._env(name)
+            diagnostics.append(
+                Diagnostic(
+                    name.lower(),
+                    bool(value),
+                    "configured" if value else "not configured",
+                )
             )
-        )
-        diagnostics.append(
-            Diagnostic(
-                "anthropic_key",
-                bool(self._env("ANTHROPIC_API_KEY")),
-                "configured" if self._env("ANTHROPIC_API_KEY") else "not configured",
-            )
-        )
-        diagnostics.append(
-            Diagnostic(
-                "cursor_key",
-                bool(self._env("CURSOR_API_KEY")),
-                "configured" if self._env("CURSOR_API_KEY") else "not configured",
-            )
-        )
 
         return tuple(diagnostics)
 
     def healthy(self, include_optional: bool = False) -> bool:
         """Return whether required diagnostics pass."""
         diagnostics = self.check()
-        required_prefixes = {"python", "workspace", "git", "configuration_paths"}
-        for item in diagnostics:
-            if item.name in required_prefixes and not item.ok:
-                return False
-            if include_optional and item.name in {
-                "fastapi",
-                "pyautogui",
-                "PIL",
-                "pytesseract",
-                "tesseract",
-            } and not item.ok:
-                return False
-        return True
+        required = {"python", "workspace", "git", "configuration_paths"}
+        optional = {"fastapi", "pyautogui", "PIL", "pytesseract", "tesseract"}
+
+        return all(
+            item.ok
+            for item in diagnostics
+            if item.name in required or (include_optional and item.name in optional)
+        )
 
     def _check_paths(self) -> bool:
         try:
@@ -130,12 +137,11 @@ class Doctor:
 
     @staticmethod
     def _env(name: str) -> str:
-        import os
-
         return os.getenv(name, "").strip()
 
-    def _tesseract_override(self) -> str:
+    def _tesseract_override(self) -> str | None:
         override = self._env("ULTRON_TESSERACT_CMD")
         if not override:
-            return ""
-        return override if Path(override).exists() else ""
+            return None
+        path = Path(override)
+        return str(path) if path.exists() and path.is_file() else None
