@@ -155,7 +155,6 @@ class OllamaInference:
         return InferenceResult("ollama", self.model, text.strip())
 
 
-
 def _generate_with_retry(
     poster: JsonPoster,
     url: str,
@@ -184,7 +183,9 @@ def _is_retryable_error(exc: InferenceRequestError) -> bool:
 def _gemini_model_candidates(model: str) -> tuple[str, ...]:
     candidates = [model]
     if model == "gemini-3.8-flash":
-        candidates.extend(("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"))
+        candidates.extend(
+            ("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash")
+        )
     return tuple(dict.fromkeys(candidates))
 
 def _gemini_text(payload: JsonObject) -> str:
