@@ -39,7 +39,7 @@ class ProgressCorrelator:
         if progress is not None and progress >= 1.0:
             state = ProgressState.COMPLETE
             reason = "Provider reported 100% progress."
-        elif any(token in summary for token in ("blocked", "error", "failed", "waiting")):
+        elif self._is_blocked_summary(summary):
             state = ProgressState.BLOCKED
             reason = "Provider summary contains a blocking signal."
         elif changed_count > 0 or (progress is not None and progress > 0):
@@ -59,3 +59,25 @@ class ProgressCorrelator:
             changed_file_count=changed_count,
             reported_progress=progress,
         )
+
+    @staticmethod
+    def _is_blocked_summary(summary: str) -> bool:
+        """Detect explicit blockers without treating normal waiting as a blocker."""
+        blocking_signals = (
+            "blocked",
+            "cannot proceed",
+            "can't proceed",
+            "unable to proceed",
+            "unable to continue",
+            "failed",
+            "error",
+            "dependency missing",
+            "missing dependency",
+            "missing credentials",
+            "requires human input",
+            "needs human input",
+            "awaiting user input",
+            "waiting for user input",
+            "blocked by",
+        )
+        return any(token in summary for token in blocking_signals)
