@@ -61,6 +61,8 @@ Desktop automation:
 
 Free-first model clients use only the Python standard library; no extra model SDK is required.
 
+When `--reasoner gemini` is used with `workflow-run` or `auto-loop`, Gemini provides advisory reasoning for REVIEW decisions. Its output is included as evidence in the next prompt; it never bypasses ULTRON safety or execution controls.
+
 The OCR path also requires the Tesseract executable to be installed on the machine. Configure `ULTRON_TESSERACT_CMD` when it is not available on PATH.
 
 ## Configuration
@@ -179,6 +181,7 @@ src/ultron/
 ├── correlation.py         # progress classification
 ├── decision.py            # next-action decisions
 ├── synthesis.py           # next-prompt generation
+├── reasoning.py           # Gemini advisory reasoning
 ├── approval.py            # human approval lifecycle
 ├── safety.py              # policy and emergency-stop checks
 ├── executor.py            # restricted subprocess execution
