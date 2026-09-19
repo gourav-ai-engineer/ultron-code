@@ -6,6 +6,7 @@ import typer
 
 from .approval import ApprovalGateway, ApprovalStatus
 from .audit import AuditLogger
+from .autonomous import AutonomousLoopConfig, AutonomousRunner
 from .control import ControlStore
 from .desktop import DesktopInteractionConfig, DesktopProviderAdapter
 from .delivery import PromptDeliveryService
@@ -16,63 +17,18 @@ from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
 from .provider_registry import ProviderRegistry
 from .provider_runtime import ProviderRequestError
-from .providers import ProviderAdapter
+from .providers import ProviderAdapter, ProviderKind
 from .run_store import RunStore
 from .runtime import UltronRuntime
-from .safety import SafetyPolicy
+from .safety import ActionRisk, SafetyPolicy
+from .screen_provider import ScreenProviderAdapter
 from .settings import UltronSettings
 from .state import ProjectStateStore
+from .validator import Validator
 from .workflow import WorkflowEngine
 from .workspace import WorkspaceObserver
 
 app = typer.Typer(help="ULTRON CODE development orchestrator")
-
-
-def _provider_kwargs(
-    provider: str,
-    response_id: str | None,
-    agent_id: str | None,
-    provider_run_id: str | None,
-    summary: str,
-    progress: float | None,
-    session_id: str | None,
-) -> dict[str, object]:
-    normalized = provider.strip().lower()
-    if normalized == "mock":
-        return {"summary": summary, "progress": progress, "session_id": session_id}
-    if normalized == "chatgpt":
-        if response_id is None:
-            raise typer.BadParameter("response_id is required for chatgpt.")
-        return {"response_id": response_id}
-    if normalized == "claude":
-        return {}
-    if normalized == "cursor":
-        if agent_id is None or provider_run_id is None:
-            raise typer.BadParameter("agent_id and provider_run_id are required for cursor.")
-        return {"agent_id": agent_id, "run_id": provider_run_id}
-    raise typer.BadParameter("Use mock, chatgpt, claude, or cursor.")
-
-
-def _build_provider(
-    registry: ProviderRegistry,
-    provider: str,
-    response_id: str | None = None,
-    agent_id: str | None = None,
-    provider_run_id: str | None = None,
-    summary: str = "No activity recorded.",
-    progress: float | None = None,
-    session_id: str | None = None,
-) -> ProviderAdapter:
-    kwargs = _provider_kwargs(
-        provider,
-        response_id,
-        agent_id,
-        provider_run_id,
-        summary,
-        progress,
-        session_id,
-    )
-    return registry.create(provider.strip().lower(), **kwargs)
 
 
 def _safe_load(store: ProjectStateStore) -> Project | None:
@@ -86,21 +42,121 @@ def _active_phase(store: ProjectStateStore) -> Phase | None:
     project = _safe_load(store)
     if project is None or project.active_phase_id is None:
         return None
-    return next((phase for phase in project.phases if phase.id == project.active_phase_id), None)
+    return next(
+        (phase for phase in project.phases if phase.id == project.active_phase_id),
+        None,
+    )
+
+
+def _is_screen_provider(provider: str) -> bool:
+    return provider.strip().lower() in {
+        "screen-chatgpt",
+        "screen-claude",
+        "screen-cursor",
+    }
+
+
+def _screen_kind(provider: str) -> ProviderKind:
+    mapping = {
+        "screen-chatgpt": ProviderKind.CHATGPT,
+        "screen-claude": ProviderKind.CLAUDE,
+        "screen-cursor": ProviderKind.CURSOR,
+    }
+    normalized = provider.strip().lower()
+    try:
+        return mapping[normalized]
+    except KeyError as exc:
+        raise typer.BadParameter(
+            "Use screen-chatgpt, screen-claude, or screen-cursor."
+        ) from exc
+
+
+def _provider_kwargs(
+    provider: str,
+    response_id: str | None,
+    agent_id: str | None,
+    provider_run_id: str | None,
+    summary: str,
+    progress: float | None,
+    session_id: str | None,
+) -> dict[str, object]:
+    normalized = provider.strip().lower()
+    if normalized == "mock":
+        return {
+            "summary": summary,
+            "progress": progress,
+            "session_id": session_id,
+        }
+    if normalized == "chatgpt":
+        if response_id is None:
+            raise typer.BadParameter("response_id is required for chatgpt.")
+        return {"response_id": response_id}
+    if normalized == "claude":
+        return {}
+    if normalized == "cursor":
+        if agent_id is None or provider_run_id is None:
+            raise typer.BadParameter(
+                "agent_id and provider_run_id are required for cursor."
+            )
+        return {"agent_id": agent_id, "run_id": provider_run_id}
+    raise typer.BadParameter("Use mock, chatgpt, claude, cursor, or a screen-* provider.")
+
+
+def _build_provider(
+    registry: ProviderRegistry,
+    provider: str,
+    *,
+    workspace: Path | None = None,
+    screen_window_title: str | None = None,
+    screen_path: Path | None = None,
+    response_id: str | None = None,
+    agent_id: str | None = None,
+    provider_run_id: str | None = None,
+    summary: str = "No activity recorded.",
+    progress: float | None = None,
+    session_id: str | None = None,
+) -> ProviderAdapter:
+    normalized = provider.strip().lower()
+    if _is_screen_provider(normalized):
+        if screen_window_title is None or not screen_window_title.strip():
+            raise typer.BadParameter(
+                "screen_window_title is required for screen-* providers."
+            )
+        root = workspace.resolve() if workspace is not None else Path(".").resolve()
+        target = screen_path or Path(".ultron/screens/provider.png")
+        resolved_screen_path = (
+            (root / target).resolve() if not target.is_absolute() else target.resolve()
+        )
+        return ScreenProviderAdapter(
+            _screen_kind(normalized),
+            screen_window_title,
+            screenshot_path=resolved_screen_path,
+        )
+
+    kwargs = _provider_kwargs(
+        normalized,
+        response_id,
+        agent_id,
+        provider_run_id,
+        summary,
+        progress,
+        session_id,
+    )
+    return registry.create(normalized, **kwargs)
 
 
 @app.command()
 def status() -> None:
-    """Show the current orchestrator status."""
+    """Show the current runtime configuration."""
     settings = UltronSettings()
-    typer.echo("ULTRON CODE v0.9.0")
+    settings.validate_paths()
+    typer.echo("ULTRON CODE v1.0.0")
     typer.echo(f"Workspace: {settings.workspace.resolve()}")
     typer.echo(f"Dry-run: {settings.dry_run}")
     typer.echo(f"Automation enabled: {settings.automation_enabled}")
-    typer.echo(
-        "Status: planning, workflow, provider registry, approvals, controls, "
-        "automation, API, and controlled execution available"
-    )
+    typer.echo(f"Auto-prompt enabled: {settings.auto_prompt_enabled}")
+    typer.echo(f"API: {settings.api_host}:{settings.api_port}")
+    typer.echo("Runtime: ready")
 
 
 @app.command()
@@ -114,9 +170,21 @@ def init(
         name=name,
         goal=goal,
         phases=[
-            Phase(id="phase-1", title="Architecture", objective="Define the system architecture"),
-            Phase(id="phase-2", title="Implementation", objective="Implement the first functional slice"),
-            Phase(id="phase-3", title="Validation", objective="Run tests and verify acceptance criteria"),
+            Phase(
+                id="phase-1",
+                title="Architecture",
+                objective="Define the system architecture",
+            ),
+            Phase(
+                id="phase-2",
+                title="Implementation",
+                objective="Implement the first functional slice",
+            ),
+            Phase(
+                id="phase-3",
+                title="Validation",
+                objective="Run tests and verify acceptance criteria",
+            ),
         ],
     )
     ProjectStateStore(state_path).save(project)
@@ -127,7 +195,10 @@ def init(
 def plan(
     name: str = typer.Option(..., prompt="Project name"),
     goal: str = typer.Option(..., prompt="Project goal"),
-    technologies: str = typer.Option("", help="Comma-separated technologies or keywords"),
+    technologies: str = typer.Option(
+        "",
+        help="Comma-separated technologies or keywords",
+    ),
     state_path: Path = typer.Option(Path(".ultron/project.json")),
 ) -> None:
     """Generate and save a deterministic project plan."""
@@ -138,7 +209,9 @@ def plan(
 
 
 @app.command()
-def next_phase(state_path: Path = typer.Option(Path(".ultron/project.json"))) -> None:
+def next_phase(
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+) -> None:
     """Activate and display the next pending phase."""
     store = ProjectStateStore(state_path)
     project = store.load()
@@ -152,18 +225,39 @@ def next_phase(state_path: Path = typer.Option(Path(".ultron/project.json"))) ->
 
 
 @app.command()
+def complete_phase(
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+) -> None:
+    """Complete the active phase and clear the active phase pointer."""
+    store = ProjectStateStore(state_path)
+    project = store.load()
+    Orchestrator(project).complete_active_phase()
+    store.save(project)
+    typer.echo("Active phase completed.")
+
+
+@app.command()
 def provider_status(
-    provider: str = typer.Option(..., prompt="Provider (chatgpt/claude/cursor/mock)"),
+    provider: str = typer.Option(
+        ...,
+        prompt="Provider (chatgpt/claude/cursor/mock/screen-*)",
+    ),
+    workspace: Path = typer.Option(Path(".")),
     response_id: str | None = typer.Option(None),
     agent_id: str | None = typer.Option(None),
     provider_run_id: str | None = typer.Option(None),
+    screen_window_title: str | None = typer.Option(None),
+    screen_path: Path | None = typer.Option(None),
 ) -> None:
-    """Probe one registered provider through its read-only runtime adapter."""
+    """Probe a provider through its read-only adapter."""
     registry = ProviderRegistry()
     try:
         adapter = _build_provider(
             registry,
             provider,
+            workspace=workspace,
+            screen_window_title=screen_window_title,
+            screen_path=screen_path,
             response_id=response_id,
             agent_id=agent_id,
             provider_run_id=provider_run_id,
@@ -177,7 +271,9 @@ def provider_status(
         snapshot = adapter.snapshot()
         typer.echo(f"Session: {snapshot.session_id or 'n/a'}")
         typer.echo(f"Summary: {snapshot.summary}")
-        typer.echo(f"Progress: {snapshot.progress if snapshot.progress is not None else 'n/a'}")
+        typer.echo(
+            f"Progress: {snapshot.progress if snapshot.progress is not None else 'n/a'}"
+        )
     except ProviderRequestError as exc:
         typer.echo(f"Provider unavailable: {exc}")
         raise typer.Exit(code=1) from exc
@@ -192,8 +288,10 @@ def approval_request(
 ) -> None:
     """Create an approval request for a safety-classified action."""
     safety_decision = SafetyPolicy(dry_run=True).evaluate(action)
-    if safety_decision.risk != safety_decision.risk.REQUIRES_APPROVAL:
-        typer.echo(f"Approval request not created: {safety_decision.reason}")
+    if safety_decision.risk != ActionRisk.REQUIRES_APPROVAL:
+        typer.echo(
+            f"Approval request not created: {safety_decision.reason}"
+        )
         raise typer.Exit(code=1)
     request = ApprovalGateway(approvals_path).request(
         safety_decision,
@@ -214,14 +312,19 @@ def approval_list(
         typer.echo("No pending approval requests.")
         return
     for request in requests:
-        typer.echo(f"{request.request_id} | {request.risk.value} | {request.action}")
+        typer.echo(
+            f"{request.request_id} | {request.risk.value} | {request.action}"
+        )
         typer.echo(f"  Rationale: {request.rationale}")
 
 
 @app.command()
 def approval_resolve(
     request_id: str = typer.Option(..., prompt="Approval request ID"),
-    status: str = typer.Option(..., prompt="Resolution (approved/rejected/deferred)"),
+    status: str = typer.Option(
+        ...,
+        prompt="Resolution (approved/rejected/deferred)",
+    ),
     note: str = typer.Option(""),
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
 ) -> None:
@@ -229,8 +332,14 @@ def approval_resolve(
     try:
         resolution = ApprovalStatus(status)
     except ValueError as exc:
-        raise typer.BadParameter("Use approved, rejected, or deferred.") from exc
-    request = ApprovalGateway(approvals_path).resolve(request_id, resolution, note)
+        raise typer.BadParameter(
+            "Use approved, rejected, or deferred."
+        ) from exc
+    request = ApprovalGateway(approvals_path).resolve(
+        request_id,
+        resolution,
+        note,
+    )
     typer.echo(f"Request: {request.request_id}")
     typer.echo(f"Status: {request.status.value}")
 
@@ -239,13 +348,24 @@ def approval_resolve(
 def execute(
     action: str = typer.Option(..., prompt="Allowlisted action"),
     workspace: Path = typer.Option(Path(".")),
-    live: bool = typer.Option(False, "--live"),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Execute instead of dry-run evaluation.",
+    ),
     approval_id: str | None = typer.Option(None, "--approval-id"),
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
 ) -> None:
     """Evaluate and optionally execute one allowlisted action."""
-    approval = ApprovalGateway(approvals_path).get(approval_id) if approval_id else None
-    executor = ActionExecutor(workspace, safety_policy=SafetyPolicy(dry_run=not live))
+    approval = (
+        ApprovalGateway(approvals_path).get(approval_id)
+        if approval_id
+        else None
+    )
+    executor = ActionExecutor(
+        workspace,
+        safety_policy=SafetyPolicy(dry_run=not live),
+    )
     try:
         result = executor.execute(action, approval=approval)
     except ExecutionDeniedError as exc:
@@ -274,6 +394,8 @@ def workflow_run(
     response_id: str | None = typer.Option(None),
     agent_id: str | None = typer.Option(None),
     provider_run_id: str | None = typer.Option(None),
+    screen_window_title: str | None = typer.Option(None),
+    screen_path: Path | None = typer.Option(None),
     action: str | None = typer.Option(None),
     live: bool = typer.Option(False, "--live"),
     approval_id: str | None = typer.Option(None, "--approval-id"),
@@ -281,11 +403,21 @@ def workflow_run(
 ) -> None:
     """Run one provider-backed workflow cycle and persist its trace."""
     project = _safe_load(ProjectStateStore(state_path))
+    settings = UltronSettings(
+        workspace=workspace,
+        state_path=state_path,
+        runs_path=runs_path,
+    )
+    settings.validate_paths()
+
     registry = ProviderRegistry()
     try:
         selected_provider = _build_provider(
             registry,
             provider,
+            workspace=workspace,
+            screen_window_title=screen_window_title,
+            screen_path=screen_path,
             response_id=response_id,
             agent_id=agent_id,
             provider_run_id=provider_run_id,
@@ -296,24 +428,30 @@ def workflow_run(
         engine = WorkflowEngine(
             WorkspaceObserver(workspace),
             executor=(
-                ActionExecutor(workspace, safety_policy=SafetyPolicy(dry_run=not live))
+                ActionExecutor(
+                    workspace,
+                    safety_policy=SafetyPolicy(dry_run=not live),
+                )
                 if action is not None
                 else None
             ),
         )
+        phase = (
+            next(
+                (p for p in project.phases if p.id == project.active_phase_id),
+                None,
+            )
+            if project is not None and project.active_phase_id is not None
+            else None
+        )
         run = engine.observe(
             selected_provider,
-            has_active_phase=project is not None and project.active_phase_id is not None,
-            phase=(
-                next(
-                    (p for p in project.phases if p.id == project.active_phase_id),
-                    None,
-                )
-                if project is not None and project.active_phase_id is not None
-                else None
-            ),
+            has_active_phase=project is not None
+            and project.active_phase_id is not None,
+            phase=phase,
         )
-        RunStore(runs_path).append(run)
+        run_store = RunStore(settings.resolve_path(runs_path))
+        run_store.append(run)
     except (ProviderRequestError, ValueError) as exc:
         typer.echo(f"Workflow configuration error: {exc}")
         raise typer.Exit(code=1) from exc
@@ -328,15 +466,21 @@ def workflow_run(
     if action is None:
         return
 
-    approval = ApprovalGateway(approvals_path).get(approval_id) if approval_id else None
+    approval = (
+        ApprovalGateway(approvals_path).get(approval_id)
+        if approval_id
+        else None
+    )
     try:
         completed = engine.execute(run, action, approval=approval)
     except ExecutionDeniedError as exc:
         typer.echo(f"Execution denied: {exc}")
         raise typer.Exit(code=1) from exc
-    RunStore(runs_path).append(completed)
+    run_store.append(completed)
     if completed.execution is not None:
-        typer.echo(f"Execution correlation ID: {completed.execution.correlation_id}")
+        typer.echo(
+            f"Execution correlation ID: {completed.execution.correlation_id}"
+        )
         typer.echo(f"Exit code: {completed.execution.return_code}")
         typer.echo(f"Timed out: {completed.execution.timed_out}")
 
@@ -352,11 +496,13 @@ def prompt_send(
     approvals_path: Path = typer.Option(Path(".ultron/approvals.json")),
     audit_path: Path = typer.Option(Path(".ultron/audit.jsonl")),
 ) -> None:
-    """Deliver one persisted synthesized prompt through an approved desktop interaction."""
+    """Deliver one persisted synthesized prompt after approval."""
     settings = UltronSettings(workspace=workspace)
     settings.validate_paths()
     if not settings.automation_enabled:
-        typer.echo("Automation is disabled. Set ULTRON_AUTOMATION_ENABLED=true first.")
+        typer.echo(
+            "Automation is disabled. Set ULTRON_AUTOMATION_ENABLED=true first."
+        )
         raise typer.Exit(code=1)
 
     run = RunStore(settings.resolve_path(runs_path)).get(run_id)
@@ -364,10 +510,16 @@ def prompt_send(
         typer.echo("Provider does not match the workflow run.")
         raise typer.Exit(code=1)
 
-    approval = ApprovalGateway(settings.resolve_path(approvals_path)).get(approval_id)
+    approval = ApprovalGateway(
+        settings.resolve_path(approvals_path)
+    ).get(approval_id)
     adapter = DesktopProviderAdapter(
         provider.strip().lower(),
-        DesktopInteractionConfig(window_title=window_title, enabled=True),
+        DesktopInteractionConfig(
+            window_title=window_title,
+            enabled=True,
+            trusted_automation=False,
+        ),
     )
     delivery = PromptDeliveryService(
         audit_logger=AuditLogger(settings.resolve_path(audit_path)),
@@ -379,12 +531,26 @@ def prompt_send(
 
 
 @app.command()
+def control_status(
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+) -> None:
+    """Show persistent runtime control state."""
+    state = ControlStore(control_path).get()
+    typer.echo(f"Emergency stop: {state.emergency_stop}")
+    typer.echo(f"Paused: {state.paused}")
+    typer.echo(f"Reason: {state.reason or 'n/a'}")
+
+
+@app.command()
 def control_stop(
     control_path: Path = typer.Option(Path(".ultron/control.json")),
     reason: str = typer.Option("Operator requested emergency stop."),
 ) -> None:
     """Enable the persistent emergency stop."""
-    state = ControlStore(control_path).set(emergency_stop=True, reason=reason)
+    state = ControlStore(control_path).set(
+        emergency_stop=True,
+        reason=reason,
+    )
     typer.echo(f"Emergency stop: {state.emergency_stop}")
     typer.echo(f"Reason: {state.reason}")
 
@@ -394,7 +560,11 @@ def control_clear(
     control_path: Path = typer.Option(Path(".ultron/control.json")),
 ) -> None:
     """Clear emergency stop and pause state."""
-    state = ControlStore(control_path).set(emergency_stop=False, paused=False, reason="")
+    state = ControlStore(control_path).set(
+        emergency_stop=False,
+        paused=False,
+        reason="",
+    )
     typer.echo(f"Emergency stop: {state.emergency_stop}")
     typer.echo(f"Paused: {state.paused}")
 
@@ -416,9 +586,14 @@ def control_resume(
     """Resume future workflow-loop iterations."""
     current = ControlStore(control_path).get()
     if current.emergency_stop:
-        typer.echo("Emergency stop remains active; use control-clear first.")
+        typer.echo(
+            "Emergency stop remains active; use control-clear first."
+        )
         raise typer.Exit(code=1)
-    state = ControlStore(control_path).set(paused=False, reason="")
+    state = ControlStore(control_path).set(
+        paused=False,
+        reason="",
+    )
     typer.echo(f"Paused: {state.paused}")
 
 
@@ -432,38 +607,54 @@ def run_loop(
     response_id: str | None = typer.Option(None),
     agent_id: str | None = typer.Option(None),
     provider_run_id: str | None = typer.Option(None),
+    screen_window_title: str | None = typer.Option(None),
+    screen_path: Path | None = typer.Option(None),
     interval_seconds: float = typer.Option(10.0, min=0.1),
     max_iterations: int = typer.Option(1, min=0),
     provider_summary: str = typer.Option("No activity recorded."),
     progress: float | None = typer.Option(None, min=0.0, max=1.0),
 ) -> None:
-    """Run repeated provider observations until stopped, paused, or bounded."""
+    """Run repeated provider observations until stopped or bounded."""
     settings = UltronSettings(
         workspace=workspace,
         state_path=state_path,
         runs_path=runs_path,
     )
+    settings.validate_paths()
     registry = ProviderRegistry()
-    selected_provider = _build_provider(
-        registry,
-        provider,
-        response_id=response_id,
-        agent_id=agent_id,
-        provider_run_id=provider_run_id,
-        summary=provider_summary,
-        progress=progress,
-    )
+    try:
+        selected_provider = _build_provider(
+            registry,
+            provider,
+            workspace=workspace,
+            screen_window_title=screen_window_title,
+            screen_path=screen_path,
+            response_id=response_id,
+            agent_id=agent_id,
+            provider_run_id=provider_run_id,
+            summary=provider_summary,
+            progress=progress,
+        )
+    except (ProviderRequestError, ValueError) as exc:
+        typer.echo(f"Provider configuration error: {exc}")
+        raise typer.Exit(code=1) from exc
+
     project_store = ProjectStateStore(settings.resolve_path(state_path))
     loop = WorkflowLoop(
         WorkflowEngine(WorkspaceObserver(workspace)),
         selected_provider,
-        LoopConfig(interval_seconds=interval_seconds, max_iterations=max_iterations),
+        LoopConfig(
+            interval_seconds=interval_seconds,
+            max_iterations=max_iterations,
+        ),
         run_store=RunStore(settings.resolve_path(runs_path)),
         control_store=ControlStore(settings.resolve_path(control_path)),
         phase_supplier=lambda: _active_phase(project_store),
     )
     runs = loop.run(
-        lambda: (project := _safe_load(project_store)) is not None
+        lambda: (
+            project := _safe_load(project_store)
+        ) is not None
         and project.active_phase_id is not None,
         on_run=lambda run: typer.echo(
             f"{run.run_id} | {run.provider.provider.value} | "
@@ -474,13 +665,162 @@ def run_loop(
 
 
 @app.command()
+def auto_loop(
+    provider: str = typer.Option("screen-chatgpt"),
+    workspace: Path = typer.Option(Path(".")),
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+    runs_path: Path = typer.Option(Path(".ultron/runs.jsonl")),
+    control_path: Path = typer.Option(Path(".ultron/control.json")),
+    screen_window_title: str = typer.Option(..., prompt="AI window title contains"),
+    screen_path: Path | None = typer.Option(None),
+    interval_seconds: float = typer.Option(10.0, min=1.0),
+    max_iterations: int = typer.Option(0, min=0),
+) -> None:
+    """Observe a desktop AI window and auto-send only non-blocked prompts."""
+    settings = UltronSettings(
+        workspace=workspace,
+        state_path=state_path,
+        runs_path=runs_path,
+    )
+    settings.validate_paths()
+
+    if settings.dry_run:
+        typer.echo("Auto loop requires ULTRON_DRY_RUN=false.")
+        raise typer.Exit(code=1)
+    if not settings.automation_enabled:
+        typer.echo(
+            "Auto loop requires ULTRON_AUTOMATION_ENABLED=true."
+        )
+        raise typer.Exit(code=1)
+    if not settings.auto_prompt_enabled:
+        typer.echo(
+            "Auto loop requires ULTRON_AUTO_PROMPT_ENABLED=true."
+        )
+        raise typer.Exit(code=1)
+    if not _is_screen_provider(provider):
+        typer.echo(
+            "Auto loop currently uses the screen-backed interaction adapter. "
+            "Use screen-chatgpt, screen-claude, or screen-cursor."
+        )
+        raise typer.Exit(code=1)
+
+    registry = ProviderRegistry()
+    observer = _build_provider(
+        registry,
+        provider,
+        workspace=workspace,
+        screen_window_title=screen_window_title,
+        screen_path=screen_path,
+    )
+    desktop_provider = provider.strip().lower().removeprefix("screen-")
+    interaction = DesktopProviderAdapter(
+        desktop_provider,
+        DesktopInteractionConfig(
+            window_title=screen_window_title,
+            enabled=True,
+            trusted_automation=True,
+        ),
+    )
+    project_store = ProjectStateStore(settings.resolve_path(state_path))
+    audit_logger = AuditLogger(settings.resolve_path(settings.audit_path))
+    runner = AutonomousRunner(
+        WorkflowEngine(WorkspaceObserver(workspace)),
+        observer,
+        interaction=interaction,
+        config=AutonomousLoopConfig(
+            interval_seconds=interval_seconds,
+            max_iterations=max_iterations,
+            auto_prompt_enabled=True,
+        ),
+        run_store=RunStore(settings.resolve_path(runs_path)),
+        control_store=ControlStore(settings.resolve_path(control_path)),
+        delivery=PromptDeliveryService(audit_logger=audit_logger),
+        phase_supplier=lambda: _active_phase(project_store),
+    )
+
+    cycles = runner.run(
+        lambda: (
+            project := _safe_load(project_store)
+        ) is not None
+        and project.active_phase_id is not None,
+        on_cycle=lambda cycle: typer.echo(
+            f"{cycle.run.run_id} | {cycle.run.decision.kind.value} | "
+            f"sent={cycle.delivery.interaction.accepted if cycle.delivery else False}"
+        ),
+    )
+    typer.echo(f"Cycles completed: {len(cycles)}")
+
+
+@app.command()
+def run_show(
+    run_id: str = typer.Option(..., prompt="Workflow run ID"),
+    workspace: Path = typer.Option(Path(".")),
+    runs_path: Path = typer.Option(Path(".ultron/runs.jsonl")),
+) -> None:
+    """Display one persisted workflow run."""
+    settings = UltronSettings(workspace=workspace)
+    run = RunStore(settings.resolve_path(runs_path)).get(run_id)
+    typer.echo(f"Run ID: {run.run_id}")
+    typer.echo(f"Stage: {run.stage.value}")
+    typer.echo(f"Provider: {run.provider.provider.value}")
+    typer.echo(f"Progress: {run.assessment.state.value}")
+    typer.echo(f"Decision: {run.decision.kind.value}")
+    typer.echo(f"Prompt approval required: {run.prompt.requires_approval}")
+    if run.execution is not None:
+        typer.echo(f"Exit code: {run.execution.return_code}")
+        typer.echo(f"Timed out: {run.execution.timed_out}")
+
+
+@app.command()
+def validate(
+    command: list[str] = typer.Argument(
+        None,
+        help="Validation commands, e.g. 'python -m pytest' 'ruff check src'.",
+    ),
+    workspace: Path = typer.Option(Path(".")),
+    live: bool = typer.Option(False, "--live"),
+) -> None:
+    """Run explicitly supplied allowlisted validation commands."""
+    commands = tuple(command or ("python -m pytest",))
+    executor = ActionExecutor(
+        workspace,
+        safety_policy=SafetyPolicy(dry_run=not live),
+    )
+    report = Validator(executor).validate(commands)
+    typer.echo(f"Passed: {report.passed}")
+    typer.echo(f"Commands evaluated: {len(report.results)}")
+    for result in report.results:
+        typer.echo(
+            f"{result.action} -> exit={result.return_code}, timed_out={result.timed_out}"
+        )
+
+
+@app.command()
+def audit_list(
+    audit_path: Path = typer.Option(Path(".ultron/audit.jsonl")),
+) -> None:
+    """Display persisted audit events."""
+    events = AuditLogger(audit_path).read_all()
+    if not events:
+        typer.echo("No audit events recorded.")
+        return
+    for event in events:
+        typer.echo(
+            f"{event.timestamp} | {event.status} | "
+            f"{event.risk} | {event.correlation_id} | {event.action}"
+        )
+
+
+@app.command()
 def serve() -> None:
     """Start the local FastAPI control plane."""
     try:
         import uvicorn
         from .api import create_app
     except ImportError as exc:
-        raise typer.BadParameter("Install the 'api' optional dependency to run the server.") from exc
+        raise typer.BadParameter(
+            "Install the 'api' optional dependency to run the server."
+        ) from exc
     settings = UltronSettings()
     settings.validate_paths()
     uvicorn.run(
