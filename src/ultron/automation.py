@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .approval import ApprovalRequest, ApprovalStatus
 from .safety import ActionRisk, SafetyPolicy
@@ -95,7 +96,7 @@ class KeyboardController:
             raise AutomationDeniedError(decision.reason)
 
     @staticmethod
-    def _pyautogui():
+    def _pyautogui() -> Any:
         try:
             import pyautogui
         except ImportError as exc:
