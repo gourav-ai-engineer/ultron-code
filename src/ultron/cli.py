@@ -11,6 +11,7 @@ from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
 from .provider_registry import ProviderRegistry
 from .provider_runtime import ProviderRequestError
+from .providers import ProviderAdapter
 from .safety import SafetyPolicy
 from .state import ProjectStateStore
 from .workflow import WorkflowEngine
@@ -59,7 +60,7 @@ def _build_provider(
     summary: str = "No activity recorded.",
     progress: float | None = None,
     session_id: str | None = None,
-):
+) -> ProviderAdapter:
     kwargs = _provider_kwargs(
         provider,
         response_id,
