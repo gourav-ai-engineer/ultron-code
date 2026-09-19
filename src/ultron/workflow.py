@@ -11,6 +11,7 @@ from .decision import Decision, DecisionEngine
 from .executor import ActionExecutor, ExecutionResult
 from .models import Phase
 from .providers import ProviderAdapter, ProviderSnapshot
+from .reasoning import Reasoner
 from .synthesis import PromptProposal, PromptSynthesizer
 from .workspace import WorkspaceObserver, WorkspaceSnapshot
 
@@ -47,12 +48,14 @@ class WorkflowEngine:
         decision_engine: DecisionEngine | None = None,
         synthesizer: PromptSynthesizer | None = None,
         executor: ActionExecutor | None = None,
+        reasoner: Reasoner | None = None,
     ) -> None:
         self.workspace = workspace
         self.correlator = correlator or ProgressCorrelator()
         self.decision_engine = decision_engine or DecisionEngine()
         self.synthesizer = synthesizer or PromptSynthesizer()
         self.executor = executor
+        self.reasoner = reasoner
 
     def observe(
         self,
@@ -71,12 +74,29 @@ class WorkflowEngine:
             has_active_phase=has_active_phase,
             acceptance_criteria_met=acceptance_criteria_met,
         )
+        advisory: str | None = None
+        notes: tuple[str, ...] = ()
+        if self.reasoner is not None and decision.kind.value == "review":
+            reasoning = self.reasoner.advise(
+                phase=phase,
+                provider=provider_snapshot,
+                workspace=workspace_snapshot,
+                assessment=assessment,
+                decision=decision,
+            )
+            advisory = reasoning.advice
+            if reasoning.error:
+                notes = (
+                    f"{reasoning.provider} reasoning unavailable: {reasoning.error}",
+                )
+
         prompt = self.synthesizer.synthesize(
             phase=phase,
             provider=provider_snapshot,
             workspace=workspace_snapshot,
             assessment=assessment,
             decision=decision,
+            advisory=advisory,
         )
         return WorkflowRun(
             run_id=run_id,
@@ -87,6 +107,7 @@ class WorkflowEngine:
             assessment=assessment,
             decision=decision,
             prompt=prompt,
+            notes=notes,
         )
 
     def execute(
