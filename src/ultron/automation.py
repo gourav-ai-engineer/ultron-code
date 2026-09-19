@@ -76,8 +76,10 @@ class KeyboardController:
         if self.safety_policy.dry_run:
             raise AutomationDeniedError("Keyboard automation is disabled in dry-run mode.")
 
-        approved = approval is not None and approval.status == ApprovalStatus.APPROVED
-        decision = self.safety_policy.evaluate(action, approved=approved)
+        if approval is None or approval.status != ApprovalStatus.APPROVED:
+            raise AutomationDeniedError("Keyboard automation requires explicit approval.")
+
+        decision = self.safety_policy.evaluate(action, approved=True)
         if decision.risk == ActionRisk.BLOCKED or not decision.allowed:
             raise AutomationDeniedError(decision.reason)
 
