@@ -8,6 +8,7 @@ from .correlation import ProgressAssessment, ProgressState
 from .decision import Decision, DecisionKind
 from .executor import ExecutionResult
 from .providers import ProviderKind, ProviderSnapshot
+from .security import redact_secrets
 from .synthesis import PromptProposal
 from .workflow import WorkflowRun, WorkflowStage
 from .workspace import WorkspaceSnapshot
@@ -57,12 +58,24 @@ class RunStore:
         payload = asdict(run)
         payload["stage"] = run.stage.value
         payload["provider"]["provider"] = run.provider.provider.value
+        payload["provider"]["summary"] = redact_secrets(run.provider.summary)
+        payload["workspace"]["branch"] = (
+            redact_secrets(run.workspace.branch) if run.workspace.branch is not None else None
+        )
         payload["assessment"]["state"] = run.assessment.state.value
+        payload["assessment"]["reason"] = redact_secrets(run.assessment.reason)
         payload["decision"]["kind"] = run.decision.kind.value
+        payload["decision"]["rationale"] = redact_secrets(run.decision.rationale)
         payload["prompt"]["provider"] = run.prompt.provider.value
         payload["prompt"]["decision"] = run.prompt.decision.value
+        payload["prompt"]["prompt"] = redact_secrets(run.prompt.prompt)
+        payload["prompt"]["reason"] = redact_secrets(run.prompt.reason)
         if run.execution is not None:
             payload["execution"]["command"] = list(run.execution.command)
+            payload["execution"]["action"] = redact_secrets(run.execution.action)
+            payload["execution"]["stdout"] = redact_secrets(run.execution.stdout)
+            payload["execution"]["stderr"] = redact_secrets(run.execution.stderr)
+        payload["notes"] = [redact_secrets(str(item)) for item in run.notes]
         return payload
 
     @staticmethod
