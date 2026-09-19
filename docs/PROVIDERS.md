@@ -1,19 +1,33 @@
 # Provider Adapter Architecture
 
-ULTRON CODE uses a provider-neutral, read-only adapter contract.
+ULTRON CODE uses provider-neutral observation and interaction boundaries.
 
-## Contract
+## Observation contract
 
-Each provider adapter exposes:
+Each workflow observation adapter exposes:
 
 - `provider`: provider identity
-- `health_check()`: local connection/availability status
+- `health_check()`: connection/availability status
 - `snapshot()`: current session summary and optional progress
+
+## Free-first model inference
+
+ULTRON also includes a separate inference layer for generating text with:
+
+- **Gemini** — default cloud provider, configured with `GEMINI_API_KEY`
+- **OpenRouter free router** — configured with `OPENROUTER_API_KEY` and `openrouter/free`
+- **Ollama** — local inference with no cloud API key
+
+The CLI command is:
+
+`ultron provider-generate --provider gemini --prompt "..." `
+
+Use `--model` to override the default model.
+
+## Paid/desktop providers
+
+OpenAI, Anthropic, and Cursor support remains available for existing observation/desktop paths, but none of their API keys are required for the free-first setup.
 
 ## Safety boundary
 
-This phase does not send prompts, execute commands, automate keyboards, or control browser sessions. Future write-capable adapters must pass through the safety policy, approval gates, and audit logger.
-
-## Implementations
-
-`MockProvider` is included for deterministic development and testing. ChatGPT, Claude, and Cursor are represented as provider kinds but require dedicated, explicitly authorized integrations in later phases.
+Model generation does not itself execute shell commands or type into desktop applications. Prompt delivery and command execution remain behind ULTRON's existing safety, approval, audit, workspace, and emergency-stop controls.
