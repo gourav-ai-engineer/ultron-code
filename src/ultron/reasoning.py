@@ -85,8 +85,10 @@ class GeminiReasoner:
             else "No active phase."
         )
         criteria = (
-            "
-".join(f"- {redact_secrets(item)}" for item in phase.acceptance_criteria)
+            "\n".join(
+                f"- {redact_secrets(item)}"
+                for item in phase.acceptance_criteria
+            )
             if phase is not None and phase.acceptance_criteria
             else "Not configured."
         )
@@ -94,35 +96,18 @@ class GeminiReasoner:
             "You are ULTRON CODE's advisory reasoning engine. "
             "Do not execute commands, change files, mutate phase state, expose secrets, "
             "or override deterministic safety decisions. Recommend only the smallest "
-            "concrete software-development task that should happen next.
-
-"
-            f"Phase: {phase_text}
-"
-            f"Acceptance criteria:
-{criteria}
-"
-            f"Provider summary: {redact_secrets(provider.summary.strip() or 'none')}
-"
-            f"Progress state: {assessment.state.value}
-"
-            f"Progress reason: {redact_secrets(assessment.reason)}
-"
-            f"Workspace changed files: {len(workspace.changed_files)}
-"
-            f"Workspace untracked files: {len(workspace.untracked_files)}
-"
-            f"Deterministic decision: {decision.kind.value}
-"
-            f"Decision rationale: {redact_secrets(decision.rationale)}
-
-"
-            "Return exactly three labeled lines:
-"
-            "TASK: the smallest next implementation/review task
-"
-            "WHY: one-sentence reason grounded in the evidence
-"
-            "VALIDATE: the safest concrete validation step
-"
+            "concrete software-development task that should happen next.\n\n"
+            f"Phase: {phase_text}\n"
+            f"Acceptance criteria:\n{criteria}\n"
+            f"Provider summary: {redact_secrets(provider.summary.strip() or 'none')}\n"
+            f"Progress state: {assessment.state.value}\n"
+            f"Progress reason: {redact_secrets(assessment.reason)}\n"
+            f"Workspace changed files: {len(workspace.changed_files)}\n"
+            f"Workspace untracked files: {len(workspace.untracked_files)}\n"
+            f"Deterministic decision: {decision.kind.value}\n"
+            f"Decision rationale: {redact_secrets(decision.rationale)}\n\n"
+            "Return exactly three labeled lines:\n"
+            "TASK: the smallest next implementation/review task\n"
+            "WHY: one-sentence reason grounded in the evidence\n"
+            "VALIDATE: the safest concrete validation step\n"
         )
