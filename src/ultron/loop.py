@@ -3,8 +3,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 import threading
-import time
 
+from .control import ControlStore
 from .providers import ProviderAdapter
 from .run_store import RunStore
 from .workflow import WorkflowEngine, WorkflowRun
@@ -25,7 +25,7 @@ class LoopConfig:
 
 
 class WorkflowLoop:
-    """Repeatedly observe a provider until stopped or the limit is reached."""
+    """Repeatedly observe a provider until stopped or the control state pauses it."""
 
     def __init__(
         self,
@@ -33,11 +33,13 @@ class WorkflowLoop:
         provider: ProviderAdapter,
         config: LoopConfig | None = None,
         run_store: RunStore | None = None,
+        control_store: ControlStore | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
         self.config = config or LoopConfig()
         self.run_store = run_store
+        self.control_store = control_store
         self._stop_event = threading.Event()
 
     def stop(self) -> None:
@@ -49,10 +51,16 @@ class WorkflowLoop:
         has_active_phase: Callable[[], bool],
         on_run: Callable[[WorkflowRun], None] | None = None,
     ) -> list[WorkflowRun]:
-        """Run until stopped or max_iterations is reached; zero means unbounded."""
+        """Run until stopped, paused/stopped by controls, or max_iterations is reached."""
         runs: list[WorkflowRun] = []
         iteration = 0
+
         while not self._stop_event.is_set():
+            if self.control_store is not None:
+                controls = self.control_store.get()
+                if controls.emergency_stop or controls.paused:
+                    break
+
             run = self.engine.observe(
                 self.provider,
                 has_active_phase=has_active_phase(),
@@ -67,4 +75,5 @@ class WorkflowLoop:
             if self.config.max_iterations and iteration >= self.config.max_iterations:
                 break
             self._stop_event.wait(self.config.interval_seconds)
+
         return runs
