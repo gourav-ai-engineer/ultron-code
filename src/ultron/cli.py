@@ -314,23 +314,36 @@ def provider_generate(
 ) -> None:
     """Generate text with a free-tier cloud provider or local Ollama."""
     normalized = provider.strip().lower()
+    settings = UltronSettings()
 
     if normalized == "gemini":
-        client = GeminiInference(model=model or "gemini-3.8-flash")
+        api_key = (
+            settings.gemini_api_key.get_secret_value()
+            if settings.gemini_api_key is not None
+            else None
+        )
+        client = GeminiInference(
+            model=model or "gemini-3.8-flash",
+            api_key=api_key,
+        )
     elif normalized == "openrouter":
-        client = OpenRouterFreeInference(model=model or "openrouter/free")
+        api_key = (
+            settings.openrouter_api_key.get_secret_value()
+            if settings.openrouter_api_key is not None
+            else None
+        )
+        client = OpenRouterFreeInference(
+            model=model or "openrouter/free",
+            api_key=api_key,
+        )
     elif normalized == "ollama":
-        import os
-
-        selected_model = model or os.getenv("OLLAMA_MODEL", "").strip()
-        if not selected_model:
+        if not (selected_model := (model or settings.ollama_model or "").strip()):
             raise typer.BadParameter(
                 "OLLAMA_MODEL or --model is required for the local Ollama provider."
             )
         client = OllamaInference(
             model=selected_model,
-            base_url=os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
-            + "/api",
+            base_url=settings.ollama_host.rstrip("/") + "/api",
         )
     else:
         raise typer.BadParameter("Use gemini, openrouter, or ollama.")
