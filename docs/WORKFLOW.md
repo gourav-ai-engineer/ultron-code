@@ -1,6 +1,6 @@
 # End-to-End Workflow Runs
 
-Phase 13 introduces the workflow integration contract.
+Phase 13 introduced the workflow integration contract. Phase 15 connects it to the provider registry.
 
 ## Workflow
 
@@ -10,19 +10,35 @@ A run follows:
 
 Every run receives a unique `run_id`. When execution is requested, that same ID becomes the executor's correlation ID and therefore links the execution audit records back to the original observation.
 
-## CLI
+## Provider selection
 
-A local observation can be exercised with:
+The workflow CLI resolves a provider through `ProviderRegistry`.
 
-`ultron workflow-run --workspace . --provider-summary "Working" --progress 0.5`
+A mock/offline observation:
+
+`ultron workflow-run --provider mock --provider-summary "Working" --progress 0.5`
+
+An OpenAI Responses API observation:
+
+`ultron workflow-run --provider chatgpt --response-id <response-id>`
+
+A Claude API availability observation:
+
+`ultron workflow-run --provider claude`
+
+A Cursor Cloud Agent run observation:
+
+`ultron workflow-run --provider cursor --agent-id <agent-id> --provider-run-id <run-id>`
+
+Only the provider adapter knows how to contact the external service. The workflow engine remains provider-neutral.
+
+## Execution
 
 An explicitly supplied action can be evaluated through the same run:
 
-`ultron workflow-run --workspace . --action "git status"`
+`ultron workflow-run --provider mock --workspace . --action "git status"`
 
 Live execution still requires the existing `--live` flag and any approval required by the safety policy.
-
-The CLI currently uses `MockProvider` to demonstrate the provider boundary. Real provider adapters can replace it without changing the workflow engine.
 
 ## Boundaries
 
@@ -36,8 +52,8 @@ The workflow engine:
 - does not bypass safety policy or approval checks
 - does not automatically invent or send provider prompts
 
-Execution is explicit: a caller must supply the action, and the configured executor still applies its allowlist, safety policy, and approval requirements.
+Provider registry selection likewise only constructs adapters; it does not execute provider actions.
 
 ## Why this matters
 
-Future provider integrations can focus on translating a real ChatGPT, Claude, or Cursor session into `ProviderSnapshot` data. The orchestration layer remains provider-neutral.
+ULTRON can now switch providers without changing the orchestration graph. Future provider adapters can be added through the registry, while the safety and execution boundaries remain centralized.
