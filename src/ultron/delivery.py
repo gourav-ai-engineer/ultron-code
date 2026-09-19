@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .approval import ApprovalRequest
+from .approval import ApprovalRequest, ApprovalStatus
 from .audit import AuditLogger
 from .interaction import InteractionGateway, InteractionResult, ProviderInteractionAdapter
 from .security import redact_secrets
@@ -38,6 +38,31 @@ class PromptDeliveryService:
     ) -> DeliveryResult:
         """Deliver one synthesized prompt; approval is required by default."""
         proposal: PromptProposal = run.prompt
+
+        if approval is not None:
+            if approval.status != ApprovalStatus.APPROVED:
+                return DeliveryResult(
+                    run_id=run.run_id,
+                    interaction=InteractionResult(
+                        interaction_id=f"denied-{run.run_id}",
+                        provider=adapter.provider,
+                        accepted=False,
+                        message="Approval request is not approved.",
+                        correlation_id=run.run_id,
+                    ),
+                )
+            if approval.correlation_id and approval.correlation_id != run.run_id:
+                return DeliveryResult(
+                    run_id=run.run_id,
+                    interaction=InteractionResult(
+                        interaction_id=f"denied-{run.run_id}",
+                        provider=adapter.provider,
+                        accepted=False,
+                        message="Approval request belongs to a different workflow run.",
+                        correlation_id=run.run_id,
+                    ),
+                )
+
         interaction = self.gateway.send(
             adapter,
             redact_secrets(proposal.prompt),
