@@ -6,6 +6,7 @@ import typer
 
 from .models import Phase, Project
 from .orchestrator import Orchestrator
+from .planner import ProjectPlanner
 from .state import ProjectStateStore
 
 app = typer.Typer(help="ULTRON CODE development orchestrator")
@@ -14,9 +15,9 @@ app = typer.Typer(help="ULTRON CODE development orchestrator")
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.2.0")
+    typer.echo("ULTRON CODE v0.3.0")
     typer.echo("Mode: dry-run")
-    typer.echo("Status: orchestration engine available")
+    typer.echo("Status: planning and orchestration available")
 
 
 @app.command()
@@ -37,6 +38,20 @@ def init(
     )
     ProjectStateStore(state_path).save(project)
     typer.echo(f"Project initialized: {state_path}")
+
+
+@app.command()
+def plan(
+    name: str = typer.Option(..., prompt="Project name"),
+    goal: str = typer.Option(..., prompt="Project goal"),
+    technologies: str = typer.Option("", help="Comma-separated technologies or keywords"),
+    state_path: Path = typer.Option(Path(".ultron/project.json")),
+) -> None:
+    """Generate and save a deterministic project plan."""
+    technology_list = [item.strip() for item in technologies.split(",") if item.strip()]
+    project = ProjectPlanner().create_plan(name, goal, technology_list)
+    ProjectStateStore(state_path).save(project)
+    typer.echo(f"Plan created with {len(project.phases)} phases: {state_path}")
 
 
 @app.command()
