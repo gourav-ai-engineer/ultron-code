@@ -68,6 +68,7 @@ class PromptDeliveryService:
             redact_secrets(proposal.prompt),
             approval=approval,
             requires_approval=require_approval or proposal.requires_approval,
+            correlation_id=run.run_id,
         )
         if self.audit_logger is not None:
             status = "sent" if interaction.accepted else "denied"
