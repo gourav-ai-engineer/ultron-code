@@ -1,7 +1,7 @@
 """Optional local HTTP API for ULTRON CODE."""
 
-from pathlib import Path
 from typing import Any
+import hmac
 
 from .provider_runtime import ProviderRequestError
 from .runtime import UltronRuntime
@@ -10,7 +10,8 @@ from .runtime import UltronRuntime
 def create_app(runtime: UltronRuntime | None = None):
     """Create the FastAPI application without importing FastAPI at module load."""
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import FastAPI, Header, HTTPException
+        from fastapi.staticfiles import StaticFiles
         from pydantic import BaseModel, Field
     except ImportError as exc:
         raise RuntimeError(
@@ -18,7 +19,7 @@ def create_app(runtime: UltronRuntime | None = None):
         ) from exc
 
     runtime = runtime or UltronRuntime()
-    app = FastAPI(title="ULTRON CODE", version="0.8.0")
+    app = FastAPI(title="ULTRON CODE", version="0.9.0")
 
     class ObservationRequest(BaseModel):
         provider: str = "mock"
@@ -29,6 +30,22 @@ def create_app(runtime: UltronRuntime | None = None):
         progress: float | None = Field(default=None, ge=0.0, le=1.0)
         session_id: str | None = None
 
+    def require_token(authorization: str | None) -> None:
+        configured = runtime.settings.api_token
+        if configured is None:
+            return
+        expected = f"Bearer {configured.get_secret_value()}"
+        if authorization is None or not hmac.compare_digest(authorization, expected):
+            raise HTTPException(status_code=401, detail="Unauthorized.")
+
+    dashboard_root = runtime.settings.resolve_path(runtime.settings.dashboard_path)
+    if dashboard_root.exists() and dashboard_root.is_dir():
+        app.mount(
+            "/dashboard",
+            StaticFiles(directory=dashboard_root, html=True),
+            name="dashboard",
+        )
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return {
@@ -36,25 +53,34 @@ def create_app(runtime: UltronRuntime | None = None):
             "version": app.version,
             "workspace": str(runtime.settings.workspace.resolve()),
             "dry_run": runtime.settings.dry_run,
+            "automation_enabled": runtime.settings.automation_enabled,
         }
 
     @app.get("/providers")
-    def providers() -> dict[str, list[str]]:
+    def providers(authorization: str | None = Header(default=None)) -> dict[str, list[str]]:
+        require_token(authorization)
         return {"providers": [item.value for item in runtime.registry.available()]}
 
     @app.get("/runs")
-    def runs() -> list[dict[str, object]]:
+    def runs(authorization: str | None = Header(default=None)) -> list[dict[str, object]]:
+        require_token(authorization)
         return runtime.run_store.all()
 
     @app.get("/runs/latest")
-    def latest_run() -> dict[str, object]:
+    def latest_run(authorization: str | None = Header(default=None)) -> dict[str, object]:
+        require_token(authorization)
         latest = runtime.run_store.latest()
         if latest is None:
             raise HTTPException(status_code=404, detail="No workflow runs recorded.")
         return latest
 
     @app.post("/runs/observe")
-    def observe(request: ObservationRequest) -> dict[str, object]:
+    def observe(
+        request: ObservationRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_token(authorization)
+
         kwargs: dict[str, object]
         if request.provider == "mock":
             kwargs = {
