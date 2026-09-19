@@ -60,7 +60,7 @@ class PromptSynthesizer:
         evidence = (
             f"{phase_context}\n{criteria}\n{workspace_context}\n"
             f"{provider_context}\nProgress assessment: {assessment.state.value} "
-            f"({redact_secrets(assessment.reason)})"
+            f"({redact_secrets(assessment.reason)})\n{advisory_context}"
         )
 
         instruction = self._instruction(decision.kind, assessment.state)
