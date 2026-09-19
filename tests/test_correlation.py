@@ -46,6 +46,14 @@ def test_waiting_for_next_task_is_idle() -> None:
     assert assessment.state == ProgressState.IDLE
 
 
+def test_explicit_idle_wins_over_unrelated_workspace_changes() -> None:
+    assessment = ProgressCorrelator().assess(
+        MockProvider(summary="Waiting for next task", progress=0.0).snapshot(),
+        workspace(("README.md",)),
+    )
+    assert assessment.state == ProgressState.IDLE
+
+
 def test_explicit_cannot_proceed_is_blocked() -> None:
     assessment = ProgressCorrelator().assess(
         MockProvider(summary="Cannot proceed because credentials are missing").snapshot(),
