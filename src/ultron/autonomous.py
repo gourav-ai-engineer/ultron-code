@@ -72,7 +72,7 @@ class AutonomousRunner:
         has_active_phase: Callable[[], bool],
         on_cycle: Callable[[AutonomousCycle], None] | None = None,
     ) -> list[AutonomousCycle]:
-        """Run bounded cycles and dispatch only changed, non-blocked prompts."""
+        """Run bounded cycles and dispatch only changed, actionable prompts."""
         cycles: list[AutonomousCycle] = []
         iteration = 0
 
@@ -99,13 +99,14 @@ class AutonomousRunner:
             should_dispatch = (
                 self.config.auto_prompt_enabled
                 and self.interaction is not None
+                and run.decision.kind.value == "review"
                 and not run.prompt.requires_approval
                 and (
                     not self.config.suppress_duplicate_prompts
                     or fingerprint != self._last_prompt_fingerprint
                 )
             )
-            if should_dispatch:
+            if should_dispatch and self.interaction is not None:
                 result = self.delivery.deliver(
                     run,
                     self.interaction,
