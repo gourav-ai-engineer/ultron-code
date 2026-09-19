@@ -69,15 +69,16 @@ class ActionExecutor:
         self,
         action: str,
         approval: ApprovalRequest | None = None,
+        correlation_id: str | None = None,
     ) -> ExecutionResult:
         """Evaluate and, when permitted, execute one allowlisted action."""
-        correlation_id = str(uuid4())
+        run_correlation_id = correlation_id or str(uuid4())
 
         try:
             command = self._parse(action)
             self._validate_allowlist(command)
         except ExecutionDeniedError as exc:
-            self.audit_logger.record_blocked(action, str(exc), correlation_id)
+            self.audit_logger.record_blocked(action, str(exc), run_correlation_id)
             raise
 
         approved = approval is not None and approval.status == ApprovalStatus.APPROVED
@@ -87,7 +88,7 @@ class ActionExecutor:
             self.audit_logger.record(
                 decision,
                 status="denied",
-                correlation_id=correlation_id,
+                correlation_id=run_correlation_id,
             )
             raise ExecutionDeniedError(decision.reason)
 
@@ -95,7 +96,7 @@ class ActionExecutor:
             self.audit_logger.record(
                 decision,
                 status="denied",
-                correlation_id=correlation_id,
+                correlation_id=run_correlation_id,
             )
             raise ExecutionDeniedError("Explicit approval is required before execution.")
 
@@ -103,14 +104,14 @@ class ActionExecutor:
             self.audit_logger.record(
                 decision,
                 status="denied",
-                correlation_id=correlation_id,
+                correlation_id=run_correlation_id,
             )
             raise ExecutionDeniedError(decision.reason)
 
         self.audit_logger.record(
             decision,
             status="approved",
-            correlation_id=correlation_id,
+            correlation_id=run_correlation_id,
         )
 
         try:
@@ -129,7 +130,7 @@ class ActionExecutor:
             self.audit_logger.record(
                 decision,
                 status="timed_out",
-                correlation_id=correlation_id,
+                correlation_id=run_correlation_id,
                 return_code=-1,
                 timed_out=True,
                 error="Command execution exceeded the configured timeout.",
@@ -141,14 +142,14 @@ class ActionExecutor:
                 stdout=stdout,
                 stderr=stderr,
                 timed_out=True,
-                correlation_id=correlation_id,
+                correlation_id=run_correlation_id,
             )
 
         error = "" if completed.returncode == 0 else f"Command exited with code {completed.returncode}."
         self.audit_logger.record(
             decision,
             status="completed" if completed.returncode == 0 else "failed",
-            correlation_id=correlation_id,
+            correlation_id=run_correlation_id,
             return_code=completed.returncode,
             error=error,
         )
@@ -160,7 +161,7 @@ class ActionExecutor:
             stdout=completed.stdout,
             stderr=completed.stderr,
             timed_out=False,
-            correlation_id=correlation_id,
+            correlation_id=run_correlation_id,
         )
 
     @staticmethod
