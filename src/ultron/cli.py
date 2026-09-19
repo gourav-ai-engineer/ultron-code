@@ -9,6 +9,12 @@ from .executor import ActionExecutor, ExecutionDeniedError
 from .models import Phase, Project
 from .orchestrator import Orchestrator
 from .planner import ProjectPlanner
+from .provider_runtime import (
+    AnthropicModelsAdapter,
+    CursorCloudRunAdapter,
+    OpenAIResponseAdapter,
+    ProviderRequestError,
+)
 from .providers import MockProvider
 from .safety import SafetyPolicy
 from .state import ProjectStateStore
@@ -21,10 +27,10 @@ app = typer.Typer(help="ULTRON CODE development orchestrator")
 @app.command()
 def status() -> None:
     """Show the current orchestrator status."""
-    typer.echo("ULTRON CODE v0.6.0")
+    typer.echo("ULTRON CODE v0.7.0")
     typer.echo("Mode: dry-run by default")
     typer.echo(
-        "Status: planning, orchestration, safety, approvals, workflow, and controlled execution available"
+        "Status: planning, orchestration, safety, approvals, workflow, and provider runtime available"
     )
 
 
@@ -74,6 +80,49 @@ def next_phase(state_path: Path = typer.Option(Path(".ultron/project.json"))) ->
     store.save(project)
     typer.echo(f"Active phase: {phase.id} — {phase.title}")
     typer.echo(f"Objective: {phase.objective}")
+
+
+@app.command()
+def provider_status(
+    provider: str = typer.Option(..., prompt="Provider (chatgpt/claude/cursor)"),
+    response_id: str | None = typer.Option(None, help="OpenAI response ID"),
+    agent_id: str | None = typer.Option(None, help="Cursor Cloud Agent ID"),
+    run_id: str | None = typer.Option(None, help="Cursor Cloud Agent run ID"),
+) -> None:
+    """Probe one configured provider through its read-only runtime adapter."""
+    normalized = provider.strip().lower()
+
+    try:
+        if normalized == "chatgpt":
+            if response_id is None:
+                raise typer.BadParameter("response_id is required for chatgpt.")
+            adapter = OpenAIResponseAdapter(response_id)
+        elif normalized == "claude":
+            adapter = AnthropicModelsAdapter()
+        elif normalized == "cursor":
+            if agent_id is None or run_id is None:
+                raise typer.BadParameter("agent_id and run_id are required for cursor.")
+            adapter = CursorCloudRunAdapter(agent_id, run_id)
+        else:
+            raise typer.BadParameter("Use chatgpt, claude, or cursor.")
+
+        health = adapter.health_check()
+        typer.echo(f"Provider: {health.provider.value}")
+        typer.echo(f"Health: {health.status.value}")
+        typer.echo(f"Message: {health.message}")
+
+        if health.status.value == "available":
+            try:
+                snapshot = adapter.snapshot()
+            except ProviderRequestError as exc:
+                typer.echo(f"Snapshot unavailable: {exc}")
+                raise typer.Exit(code=1) from exc
+            typer.echo(f"Session: {snapshot.session_id or 'n/a'}")
+            typer.echo(f"Summary: {snapshot.summary}")
+            typer.echo(f"Progress: {snapshot.progress if snapshot.progress is not None else 'n/a'}")
+    except ProviderRequestError as exc:
+        typer.echo(f"Provider unavailable: {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 @app.command()
