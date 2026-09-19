@@ -13,6 +13,7 @@ The current implementation includes:
 - persistent project and phase state
 - deterministic planning and acceptance criteria
 - read-only provider adapters for OpenAI Responses, Anthropic Models API, and Cursor Cloud Agent runs
+- free-first model inference through Gemini, OpenRouter's free-model router, and local Ollama
 - screen/OCR observation for ChatGPT, Claude, and Cursor desktop windows
 - Git/workspace observation
 - progress correlation and explainable decisions
@@ -58,6 +59,8 @@ Desktop automation:
 
 `python -m pip install -e ".[automation,ocr]"`
 
+Free-first model clients use only the Python standard library; no extra model SDK is required.
+
 The OCR path also requires the Tesseract executable to be installed on the machine. Configure `ULTRON_TESSERACT_CMD` when it is not available on PATH.
 
 ## Configuration
@@ -100,6 +103,23 @@ Observe a desktop ChatGPT window:
 
 `ultron workflow-run --provider screen-chatgpt --screen-window-title "ChatGPT"`
 
+### Free model providers
+
+Gemini is the recommended cloud provider for this setup. Google currently lists a free tier for Gemini 3.8 Flash, with free input and output tokens subject to the model's free-tier limits. Create the key in Google AI Studio and set `GEMINI_API_KEY`.
+
+Run Gemini:
+
+`ultron provider-generate --provider gemini --prompt "Review the current project goal and propose the next implementation step."`
+
+OpenRouter can route to currently available free models with `openrouter/free`; its free plan currently lists 25+ free models and a 50-request/day limit. Set `OPENROUTER_API_KEY`.
+
+Run OpenRouter free routing:
+
+`ultron provider-generate --provider openrouter --prompt "Review the current project goal and propose the next implementation step."`
+
+Ollama is the no-cloud-cost option. Install Ollama locally, pull a model, set `OLLAMA_MODEL`, and run:
+
+`ultron provider-generate --provider ollama --prompt "Review the current project goal and propose the next implementation step."`
 ## Autonomous desktop mode
 
 Enable explicitly:
