@@ -27,10 +27,24 @@ class SafetyPolicy:
     dry_run: bool = True
     emergency_stop: bool = False
     blocked_tokens: set[str] = field(
-        default_factory=lambda: {"rm -rf", "format", "del /s", "shutdown", "diskpart"}
+        default_factory=lambda: {
+            "rm -rf",
+            "format",
+            "del /s",
+            "shutdown",
+            "diskpart",
+        }
     )
     approval_tokens: set[str] = field(
-        default_factory=lambda: {"git push", "pip install", "npm install", "docker", "terraform"}
+        default_factory=lambda: {
+            "git push",
+            "pip install",
+            "npm install",
+            "docker",
+            "terraform",
+            "send prompt",
+            "provider:",
+        }
     )
 
     def evaluate(self, action: str, approved: bool = False) -> SafetyDecision:
@@ -46,9 +60,15 @@ class SafetyPolicy:
             reason = "Action matches a blocked destructive-operation pattern."
         elif any(token in normalized for token in self.approval_tokens):
             risk = ActionRisk.SAFE if approved else ActionRisk.REQUIRES_APPROVAL
-            reason = "Explicit approval is required for this action." if not approved else "Approved action."
+            reason = (
+                "Explicit approval is required for this action."
+                if not approved
+                else "Approved action."
+            )
 
-        allowed = risk == ActionRisk.SAFE and (not self.dry_run or approved or not self._needs_approval(normalized))
+        allowed = risk == ActionRisk.SAFE and (
+            not self.dry_run or approved or not self._needs_approval(normalized)
+        )
         if self.dry_run and risk == ActionRisk.SAFE:
             reason = "Dry-run mode: action evaluated but not executed."
             allowed = False
