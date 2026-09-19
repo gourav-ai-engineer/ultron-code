@@ -20,7 +20,9 @@ class UltronSettings(BaseSettings):
     audit_path: Path = Path(".ultron/audit.jsonl")
     approvals_path: Path = Path(".ultron/approvals.json")
     runs_path: Path = Path(".ultron/runs.jsonl")
+    control_path: Path = Path(".ultron/control.json")
     dashboard_path: Path = Path("web")
+    screen_path: Path = Path(".ultron/screens/provider.png")
     dry_run: bool = True
     automation_enabled: bool = False
     auto_prompt_enabled: bool = False
@@ -38,7 +40,9 @@ class UltronSettings(BaseSettings):
             self.audit_path,
             self.approvals_path,
             self.runs_path,
+            self.control_path,
             self.dashboard_path,
+            self.screen_path,
         ):
             self.resolve_path(candidate, root=root)
 
