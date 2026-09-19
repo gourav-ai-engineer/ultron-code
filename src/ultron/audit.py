@@ -76,6 +76,27 @@ class AuditLogger:
         )
         return self.record(decision, status="denied", correlation_id=correlation_id)
 
+    def record_interaction(
+        self,
+        provider: str,
+        status: str,
+        correlation_id: str,
+        accepted: bool,
+    ) -> AuditEvent:
+        """Record provider prompt-delivery metadata without storing prompt content."""
+        decision = SafetyDecision(
+            action=f"provider:{provider}:send_prompt",
+            risk=ActionRisk.REQUIRES_APPROVAL,
+            allowed=accepted,
+            reason="Provider interaction accepted." if accepted else "Provider interaction denied.",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        return self.record(
+            decision,
+            status=f"interaction_{status}",
+            correlation_id=correlation_id,
+        )
+
     def read_all(self) -> list[AuditEvent]:
         if not self.path.exists():
             return []
