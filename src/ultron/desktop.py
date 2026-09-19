@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import platform
 import time
+from typing import Any
 
 from .approval import ApprovalRequest, ApprovalStatus
 from .automation import AutomationDeniedError, KeyboardController
@@ -32,7 +33,7 @@ class WindowController:
         matches: list[tuple[int, str]] = []
 
         @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        def callback(hwnd, _lparam):
+        def callback(hwnd: Any, _lparam: Any) -> bool:
             length = user32.GetWindowTextLengthW(hwnd)
             if length <= 0:
                 return True
