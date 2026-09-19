@@ -570,6 +570,11 @@ def workflow_run(
     typer.echo("NEXT PROMPT:")
     typer.echo(run.prompt.prompt)
 
+    if run.notes:
+        typer.echo("NOTES:")
+        for note in run.notes:
+            typer.echo(note)
+
     if action is None:
         return
 
