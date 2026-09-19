@@ -6,6 +6,7 @@ from .correlation import ProgressAssessment, ProgressState
 from .decision import Decision, DecisionKind
 from .models import Phase
 from .providers import ProviderKind, ProviderSnapshot
+from .security import redact_secrets
 from .workspace import WorkspaceSnapshot
 
 
@@ -33,25 +34,27 @@ class PromptSynthesizer:
         decision: Decision,
     ) -> PromptProposal:
         phase_context = (
-            f"Current phase: {phase.title} ({phase.id}). Objective: {phase.objective}"
+            f"Current phase: {phase.title} ({phase.id}). Objective: {redact_secrets(phase.objective)}"
             if phase is not None
             else "No active project phase is configured."
         )
         criteria = (
-            "Acceptance criteria:\n- " + "\n- ".join(phase.acceptance_criteria)
+            "Acceptance criteria:\n- "
+            + "\n- ".join(redact_secrets(item) for item in phase.acceptance_criteria)
             if phase is not None and phase.acceptance_criteria
             else "Acceptance criteria: not configured."
         )
         workspace_context = (
-            f"Workspace branch: {workspace.branch or 'unknown'}. "
+            f"Workspace branch: {redact_secrets(workspace.branch or 'unknown')}. "
             f"Changed files: {len(workspace.changed_files)}. "
             f"Untracked files: {len(workspace.untracked_files)}."
         )
-        provider_context = f"Provider state: {provider.summary.strip() or 'no summary'}."
+        provider_summary = redact_secrets(provider.summary.strip() or "no summary")
+        provider_context = f"Provider state: {provider_summary}."
         evidence = (
             f"{phase_context}\n{criteria}\n{workspace_context}\n"
             f"{provider_context}\nProgress assessment: {assessment.state.value} "
-            f"({assessment.reason})"
+            f"({redact_secrets(assessment.reason)})"
         )
 
         instruction = self._instruction(decision.kind, assessment.state)
