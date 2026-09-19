@@ -9,7 +9,9 @@ from .approval import ApprovalRequest
 from .correlation import ProgressAssessment, ProgressCorrelator
 from .decision import Decision, DecisionEngine
 from .executor import ActionExecutor, ExecutionResult
+from .models import Phase
 from .providers import ProviderAdapter, ProviderSnapshot
+from .synthesis import PromptProposal, PromptSynthesizer
 from .workspace import WorkspaceObserver, WorkspaceSnapshot
 
 
@@ -30,6 +32,7 @@ class WorkflowRun:
     workspace: WorkspaceSnapshot
     assessment: ProgressAssessment
     decision: Decision
+    prompt: PromptProposal
     execution: ExecutionResult | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
 
@@ -42,20 +45,23 @@ class WorkflowEngine:
         workspace: WorkspaceObserver,
         correlator: ProgressCorrelator | None = None,
         decision_engine: DecisionEngine | None = None,
+        synthesizer: PromptSynthesizer | None = None,
         executor: ActionExecutor | None = None,
     ) -> None:
         self.workspace = workspace
         self.correlator = correlator or ProgressCorrelator()
         self.decision_engine = decision_engine or DecisionEngine()
+        self.synthesizer = synthesizer or PromptSynthesizer()
         self.executor = executor
 
     def observe(
         self,
         provider: ProviderAdapter,
         has_active_phase: bool,
+        phase: Phase | None = None,
         acceptance_criteria_met: bool = False,
     ) -> WorkflowRun:
-        """Collect provider/workspace evidence and produce one decision."""
+        """Collect evidence, decide, and synthesize the next provider prompt."""
         run_id = str(uuid4())
         provider_snapshot = provider.snapshot()
         workspace_snapshot = self.workspace.snapshot()
@@ -65,6 +71,13 @@ class WorkflowEngine:
             has_active_phase=has_active_phase,
             acceptance_criteria_met=acceptance_criteria_met,
         )
+        prompt = self.synthesizer.synthesize(
+            phase=phase,
+            provider=provider_snapshot,
+            workspace=workspace_snapshot,
+            assessment=assessment,
+            decision=decision,
+        )
         return WorkflowRun(
             run_id=run_id,
             started_at=datetime.now(timezone.utc).isoformat(),
@@ -73,6 +86,7 @@ class WorkflowEngine:
             workspace=workspace_snapshot,
             assessment=assessment,
             decision=decision,
+            prompt=prompt,
         )
 
     def execute(
@@ -98,6 +112,7 @@ class WorkflowEngine:
             workspace=run.workspace,
             assessment=run.assessment,
             decision=run.decision,
+            prompt=run.prompt,
             execution=result,
             notes=run.notes + ("Execution completed through the controlled executor.",),
         )
