@@ -42,8 +42,9 @@ class InteractionGateway:
         prompt: str,
         approval: ApprovalRequest | None = None,
         requires_approval: bool = True,
+        correlation_id: str | None = None,
     ) -> InteractionResult:
-        correlation_id = str(uuid4())
+        workflow_id = correlation_id or str(uuid4())
         approved = approval is not None and approval.status == ApprovalStatus.APPROVED
 
         if requires_approval and not approved:
@@ -52,7 +53,7 @@ class InteractionGateway:
                 provider=adapter.provider,
                 accepted=False,
                 message="Provider interaction requires explicit approval.",
-                correlation_id=correlation_id,
+                correlation_id=workflow_id,
             )
 
         if approval is not None and approval.risk == ActionRisk.BLOCKED:
@@ -61,7 +62,11 @@ class InteractionGateway:
                 provider=adapter.provider,
                 accepted=False,
                 message="Blocked actions cannot be submitted.",
-                correlation_id=correlation_id,
+                correlation_id=workflow_id,
             )
 
-        return adapter.send_prompt(prompt, correlation_id, approval=approval)
+        return adapter.send_prompt(
+            prompt,
+            workflow_id,
+            approval=approval,
+        )
