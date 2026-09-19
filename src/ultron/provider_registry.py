@@ -3,7 +3,11 @@
 from collections.abc import Callable
 from typing import Any
 
-from .provider_runtime import AnthropicModelsAdapter, CursorCloudRunAdapter, OpenAIResponseAdapter
+from .provider_runtime import (
+    AnthropicModelsAdapter,
+    CursorCloudRunAdapter,
+    OpenAIResponseAdapter,
+)
 from .providers import MockProvider, ProviderAdapter, ProviderKind
 
 ProviderFactory = Callable[..., ProviderAdapter]
