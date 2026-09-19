@@ -36,3 +36,19 @@ def test_blocking_summary_is_blocked() -> None:
         workspace(),
     )
     assert assessment.state == ProgressState.BLOCKED
+
+
+def test_waiting_for_next_task_is_idle() -> None:
+    assessment = ProgressCorrelator().assess(
+        MockProvider(summary="Waiting for next task", progress=0.0).snapshot(),
+        workspace(),
+    )
+    assert assessment.state == ProgressState.IDLE
+
+
+def test_explicit_cannot_proceed_is_blocked() -> None:
+    assessment = ProgressCorrelator().assess(
+        MockProvider(summary="Cannot proceed because credentials are missing").snapshot(),
+        workspace(),
+    )
+    assert assessment.state == ProgressState.BLOCKED
