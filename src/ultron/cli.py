@@ -12,6 +12,7 @@ from .desktop import DesktopInteractionConfig, DesktopProviderAdapter
 from .doctor import Doctor
 from .delivery import PromptDeliveryService
 from .executor import ActionExecutor, ExecutionDeniedError
+from .inference import GeminiInference, InferenceRequestError, OllamaInference, OpenRouterFreeInference
 from .loop import LoopConfig, WorkflowLoop
 from .models import Phase, Project
 from .orchestrator import Orchestrator
@@ -291,6 +292,54 @@ def provider_status(
     except ProviderRequestError as exc:
         typer.echo(f"Provider unavailable: {exc}")
         raise typer.Exit(code=1) from exc
+
+
+@app.command("provider-generate")
+def provider_generate(
+    provider: str = typer.Option(
+        "gemini",
+        help="Model provider: gemini, openrouter, or ollama.",
+    ),
+    prompt: str = typer.Option(..., prompt="Prompt"),
+    model: str | None = typer.Option(
+        None,
+        help="Model override. Gemini defaults to gemini-3.8-flash; "
+        "OpenRouter defaults to openrouter/free.",
+    ),
+) -> None:
+    """Generate text with a free-tier cloud provider or local Ollama."""
+    normalized = provider.strip().lower()
+
+    if normalized == "gemini":
+        client = GeminiInference(model=model or "gemini-3.8-flash")
+    elif normalized == "openrouter":
+        client = OpenRouterFreeInference(model=model or "openrouter/free")
+    elif normalized == "ollama":
+        import os
+
+        selected_model = model or os.getenv("OLLAMA_MODEL", "").strip()
+        if not selected_model:
+            raise typer.BadParameter(
+                "OLLAMA_MODEL or --model is required for the local Ollama provider."
+            )
+        client = OllamaInference(
+            model=selected_model,
+            base_url=os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+            + "/api",
+        )
+    else:
+        raise typer.BadParameter("Use gemini, openrouter, or ollama.")
+
+    try:
+        result = client.generate(prompt)
+    except InferenceRequestError as exc:
+        typer.echo(f"Provider unavailable: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Provider: {result.provider}")
+    typer.echo(f"Model: {result.model}")
+    typer.echo("OUTPUT:")
+    typer.echo(result.text)
 
 
 @app.command()
