@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from .approval import ApprovalRequest
 from .audit import AuditLogger
-from .interaction import InteractionResult, ProviderInteractionAdapter, InteractionGateway
+from .interaction import InteractionGateway, InteractionResult, ProviderInteractionAdapter
 from .security import redact_secrets
 from .synthesis import PromptProposal
 from .workflow import WorkflowRun
@@ -34,13 +34,15 @@ class PromptDeliveryService:
         run: WorkflowRun,
         adapter: ProviderInteractionAdapter,
         approval: ApprovalRequest | None = None,
+        require_approval: bool = True,
     ) -> DeliveryResult:
+        """Deliver one synthesized prompt; approval is required by default."""
         proposal: PromptProposal = run.prompt
         interaction = self.gateway.send(
             adapter,
             redact_secrets(proposal.prompt),
             approval=approval,
-            requires_approval=proposal.requires_approval,
+            requires_approval=require_approval or proposal.requires_approval,
         )
         if self.audit_logger is not None:
             status = "sent" if interaction.accepted else "denied"
