@@ -28,10 +28,11 @@ class FakeReader:
 
 
 def test_screen_provider_reads_window_text(tmp_path) -> None:
+    screenshot = tmp_path / "screen.png"
     adapter = ScreenProviderAdapter(
         ProviderKind.CHATGPT,
         "ChatGPT",
-        screenshot_path=tmp_path / "screen.png",
+        screenshot_path=screenshot,
         windows=FakeWindows(),
         observer=FakeObserver(),
         reader=FakeReader(),
@@ -41,6 +42,7 @@ def test_screen_provider_reads_window_text(tmp_path) -> None:
     snapshot = adapter.snapshot()
 
     assert snapshot.provider == ProviderKind.CHATGPT
-    assert snapshot.session_id == "ChatGPT - Browser"
+    assert snapshot.session_id == "ChatGPT"
     assert snapshot.progress == 1.0
     assert "complete" in snapshot.summary.lower()
+    assert not screenshot.exists()
