@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ULTRON CODE</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 1100px; }
+    header { display: flex; justify-content: space-between; align-items: baseline; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 1rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ULTRON CODE</h1>
+      <p>Autonomous AI development control plane</p>
+    </div>
+    <button id="refresh">Refresh</button>
+  </header>
+  <section class="grid">
+    <div class="card"><strong>Runtime</strong><div id="health">Loading…</div></div>
+    <div class="card"><strong>Providers</strong><div id="providers">Loading…</div></div>
+    <div class="card"><strong>Latest Run</strong><div id="latest">Loading…</div></div>
+  </section>
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>
