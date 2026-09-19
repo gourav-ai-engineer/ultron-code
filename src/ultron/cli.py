@@ -12,7 +12,12 @@ from .desktop import DesktopInteractionConfig, DesktopProviderAdapter
 from .doctor import Doctor
 from .delivery import PromptDeliveryService
 from .executor import ActionExecutor, ExecutionDeniedError
-from .inference import GeminiInference, InferenceRequestError, OllamaInference, OpenRouterFreeInference
+from .inference import (
+    GeminiInference,
+    InferenceRequestError,
+    OllamaInference,
+    OpenRouterFreeInference,
+)
 from .loop import LoopConfig, WorkflowLoop
 from .models import Phase, Project
 from .orchestrator import Orchestrator
