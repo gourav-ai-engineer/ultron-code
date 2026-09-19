@@ -1,4 +1,4 @@
-"""Persistent audit logging for ULTRON CODE decisions."""
+"""Persistent audit logging for ULTRON CODE decisions and execution attempts."""
 
 import json
 from dataclasses import asdict, dataclass
@@ -6,12 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .safety import SafetyDecision
+from .safety import ActionRisk, SafetyDecision
 
 
 @dataclass(frozen=True)
 class AuditEvent:
-    """A serializable record of an action decision."""
+    """A serializable record of a decision or execution attempt."""
 
     event_id: str
     action: str
@@ -21,6 +21,9 @@ class AuditEvent:
     timestamp: str
     status: str
     correlation_id: str
+    return_code: int | None = None
+    timed_out: bool = False
+    error: str = ""
 
 
 class AuditLogger:
@@ -34,7 +37,11 @@ class AuditLogger:
         decision: SafetyDecision,
         status: str = "evaluated",
         correlation_id: str | None = None,
+        return_code: int | None = None,
+        timed_out: bool = False,
+        error: str = "",
     ) -> AuditEvent:
+        """Record a safety decision and optional execution outcome."""
         event = AuditEvent(
             event_id=str(uuid4()),
             action=decision.action,
@@ -44,11 +51,30 @@ class AuditLogger:
             timestamp=decision.timestamp,
             status=status,
             correlation_id=correlation_id or str(uuid4()),
+            return_code=return_code,
+            timed_out=timed_out,
+            error=error,
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(event), sort_keys=True) + "\n")
         return event
+
+    def record_blocked(
+        self,
+        action: str,
+        reason: str,
+        correlation_id: str | None = None,
+    ) -> AuditEvent:
+        """Record an action rejected before normal safety evaluation."""
+        decision = SafetyDecision(
+            action=action,
+            risk=ActionRisk.BLOCKED,
+            allowed=False,
+            reason=reason,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        return self.record(decision, status="denied", correlation_id=correlation_id)
 
     def read_all(self) -> list[AuditEvent]:
         if not self.path.exists():
