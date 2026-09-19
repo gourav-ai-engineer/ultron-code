@@ -58,6 +58,7 @@ class DesktopInteractionConfig:
     submit_key: str = "enter"
     focus_delay_seconds: float = 0.5
     enabled: bool = False
+    trusted_automation: bool = False
 
 
 class DesktopProviderAdapter:
@@ -73,7 +74,8 @@ class DesktopProviderAdapter:
         self._provider = provider
         self.config = config
         self.keyboard = keyboard or KeyboardController(
-            SafetyPolicy(dry_run=not config.enabled)
+            SafetyPolicy(dry_run=not config.enabled),
+            trusted_mode=config.trusted_automation,
         )
         self.windows = windows or WindowController()
 
@@ -86,17 +88,29 @@ class DesktopProviderAdapter:
         prompt: str,
         correlation_id: str,
         approval: ApprovalRequest | None = None,
+        requires_approval: bool = True,
     ) -> InteractionResult:
         """Focus the configured window, type the prompt, and submit it."""
         if not self.config.enabled:
             raise AutomationDeniedError("Desktop automation is disabled.")
 
-        if approval is None or approval.status != ApprovalStatus.APPROVED:
+        if requires_approval and (
+            approval is None or approval.status != ApprovalStatus.APPROVED
+        ):
             return InteractionResult(
                 interaction_id=f"desktop-{correlation_id}",
                 provider=self.provider,
                 accepted=False,
                 message="Desktop interaction requires explicit approval.",
+                correlation_id=correlation_id,
+            )
+
+        if not requires_approval and not self.config.trusted_automation and approval is None:
+            return InteractionResult(
+                interaction_id=f"desktop-{correlation_id}",
+                provider=self.provider,
+                accepted=False,
+                message="Trusted automation mode is disabled.",
                 correlation_id=correlation_id,
             )
 
