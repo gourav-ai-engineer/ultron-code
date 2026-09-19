@@ -17,14 +17,16 @@ class WindowNotFoundError(RuntimeError):
 
 
 class WindowController:
-    """Find and focus a desktop window by configurable title substring."""
+    """Find and focus a uniquely matching desktop window."""
 
     def find_and_focus(self, title_contains: str) -> str:
         if not title_contains.strip():
             raise ValueError("title_contains must not be empty")
 
         if platform.system() != "Windows":
-            raise WindowNotFoundError("Desktop window focusing currently requires Windows.")
+            raise WindowNotFoundError(
+                "Desktop window focusing currently requires Windows."
+            )
 
         import ctypes
         from ctypes import wintypes
@@ -45,8 +47,16 @@ class WindowController:
             return True
 
         user32.EnumWindows(callback, 0)
+
         if not matches:
-            raise WindowNotFoundError(f"No window contains title: {title_contains}")
+            raise WindowNotFoundError(
+                f"No window contains title: {title_contains}"
+            )
+        if len(matches) > 1:
+            names = ", ".join(title for _, title in matches[:5])
+            raise WindowNotFoundError(
+                f"Multiple windows match '{title_contains}': {names}"
+            )
 
         hwnd, title = matches[0]
         user32.SetForegroundWindow(hwnd)
@@ -106,7 +116,11 @@ class DesktopProviderAdapter:
                 correlation_id=correlation_id,
             )
 
-        if not requires_approval and not self.config.trusted_automation and approval is None:
+        if (
+            not requires_approval
+            and not self.config.trusted_automation
+            and approval is None
+        ):
             return InteractionResult(
                 interaction_id=f"desktop-{correlation_id}",
                 provider=self.provider,
