@@ -43,10 +43,15 @@ class ScreenObserver:
 
 
 class KeyboardController:
-    """Type or press keys only through an explicitly gated operation."""
+    """Type or press keys through an approved or explicitly trusted operation."""
 
-    def __init__(self, safety_policy: SafetyPolicy | None = None) -> None:
+    def __init__(
+        self,
+        safety_policy: SafetyPolicy | None = None,
+        trusted_mode: bool = False,
+    ) -> None:
         self.safety_policy = safety_policy or SafetyPolicy(dry_run=True)
+        self.trusted_mode = trusted_mode
 
     def write(
         self,
@@ -76,10 +81,16 @@ class KeyboardController:
         if self.safety_policy.dry_run:
             raise AutomationDeniedError("Keyboard automation is disabled in dry-run mode.")
 
-        if approval is None or approval.status != ApprovalStatus.APPROVED:
-            raise AutomationDeniedError("Keyboard automation requires explicit approval.")
+        approved = approval is not None and approval.status == ApprovalStatus.APPROVED
+        if not approved and not self.trusted_mode:
+            raise AutomationDeniedError(
+                "Keyboard automation requires explicit approval or trusted mode."
+            )
 
-        decision = self.safety_policy.evaluate(action, approved=True)
+        decision = self.safety_policy.evaluate(
+            action,
+            approved=approved or self.trusted_mode,
+        )
         if decision.risk == ActionRisk.BLOCKED or not decision.allowed:
             raise AutomationDeniedError(decision.reason)
 
