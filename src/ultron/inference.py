@@ -160,8 +160,7 @@ def _gemini_text(payload: JsonObject) -> str:
             text = part.get("text")
             if isinstance(text, str) and text.strip():
                 parts.append(text.strip())
-    return "
-".join(parts).strip()
+    return "\n".join(parts).strip()
 
 
 def _openrouter_text(payload: JsonObject) -> str:
